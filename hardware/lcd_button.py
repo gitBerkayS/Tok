@@ -6,7 +6,8 @@
 Button:
     press while off  -> turn on and fetch the first prediction
     tap while on     -> refresh the current mode
-    touch sensor     -> switch between session total and live draft (touch again to switch back)
+    double tap       -> reset usage and show the new session total
+    touch sensor     -> switch between session total and live draft
     hold 2 seconds   -> turn off (screen and backlight dark)
 
 The backlight colour follows the same levels as the web interface.
@@ -174,6 +175,26 @@ def refresh():
     print(f"{frame.line1} | {frame.line2} ({frame.source})", flush=True)
 
 
+def reset_usage():
+    set_rgb(tok.BUSY_RGB)
+    display(last_line1, "Resetting...")
+    try:
+        tokens, scale = tok.reset_usage()
+    except (OSError, ValueError) as error:
+        display(last_line1, "Reset failed")
+        set_rgb(tok.ERROR_RGB)
+        if oled_state:
+            oled_state.status, oled_state.error = "error", "Reset failed"
+        print(f"Usage reset failed: {error}", flush=True)
+        return False
+
+    _, level, rgb, _ = tok.level_for(tokens, scale)
+    frame = tok.Frame(tok.usage_line(tokens, scale, unit="total"), "Usage reset", rgb, "reset",
+                      level, tokens, scale)
+    show_frame(frame, "Session total")
+    return True
+
+
 def show_frame(frame, mode_label):
     global last_line1
     last_line1 = frame.line1
@@ -263,7 +284,7 @@ if __name__ == "__main__":
         while True:
             gesture = gestures.read(
                 timeout=LIVE_REFRESH_S if on and live_mode else None,
-                allow_double_tap=False,  # modes switch on the touch sensor now
+                allow_double_tap=on,
             )
             if not on:
                 if gesture == "touch":
@@ -273,6 +294,11 @@ if __name__ == "__main__":
             elif gesture == "hold":
                 power_off()
                 on = False
+            elif gesture == "double_tap":
+                if reset_usage():
+                    live_mode = False
+                else:
+                    last_live_usage = None
             else:
                 if gesture == "touch":
                     live_mode = not live_mode

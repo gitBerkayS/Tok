@@ -11,4 +11,5 @@ tok/
 /backend/dashboard/
 /prompt_features*.csv
 /submitted_features*.csv
+*.csv.reset
 /.tok-session.lock

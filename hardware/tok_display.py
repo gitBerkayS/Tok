@@ -19,6 +19,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlsplit
 
 WIDTH = 16  # characters per LCD row
 
@@ -85,6 +86,25 @@ def fetch_usage(url=None, *, timeout=5):
     """GET the usage API. Returns (tokens, scale); raises OSError/ValueError on failure."""
     with urllib.request.urlopen(url or API_URL, timeout=timeout) as response:
         return parse_usage(json.load(response))
+
+
+def reset_usage(url=None):
+    """Start a new session total on the usage server."""
+    key = os.environ.get("TOK_RESET_KEY")
+    if not key:
+        raise ValueError("Set TOK_RESET_KEY on the Pi to enable usage reset.")
+    reset_url = urlsplit(url or API_URL)._replace(path="/api/usage/reset", query="", fragment="").geturl()
+    request = urllib.request.Request(
+        reset_url, method="POST", headers={"Authorization": f"Bearer {key}"}
+    )
+    with urllib.request.urlopen(request, timeout=5) as response:
+        data = json.load(response)
+    if not isinstance(data, dict) or type(data.get("tokens")) is not int or data["tokens"] != 0:
+        raise ValueError("Invalid usage reset response")
+    scale = data.get("scale")
+    if type(scale) is not int or scale <= 0:
+        raise ValueError("Invalid usage reset scale")
+    return 0, scale
 
 
 def level_for(tokens, scale):

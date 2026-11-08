@@ -1,3 +1,4 @@
+import hmac
 import json
 import os
 import random
@@ -5,9 +6,11 @@ import sys
 import time
 from functools import lru_cache
 from pathlib import Path
+from tempfile import NamedTemporaryFile
+from threading import Lock
 from urllib.request import urlopen
 
-from flask import Flask, Response, render_template, jsonify
+from flask import Flask, Response, render_template, jsonify, request
 
 # Support both python -m interface.app and python interface/app.py.
 if not __package__:
@@ -21,13 +24,48 @@ app = Flask(__name__)
 REFERENCE_SCALE = 10000  # token budget the UI bar is measured against
 DRAFT_REFRESH_SECONDS = 0.5
 DRAFT_KEEPALIVE_SECONDS = 15
+RESET_LOCK = Lock()
 DRAFT_ERROR = "Live draft estimate unavailable"
 
 
 @lru_cache(maxsize=1)
-def _csv_token_total(path, vocab_size, file_version):
-    # The file version changes on append and on atomic startup reset.
-    return estimate_csv(path, vocab_size)["estimated_tokens"]
+def _csv_token_total(path, vocab_size, file_version, cutoff):
+    # File version changes on append and replacement. The cutoff changes on reset.
+    return estimate_csv(path, vocab_size, cutoff=cutoff)["estimated_tokens"]
+
+
+def _cutoff_path(csv_path):
+    return Path(f"{csv_path}.reset")
+
+
+def _read_cutoff(csv_path):
+    try:
+        device, inode, offset = json.loads(_cutoff_path(csv_path).read_text())
+    except FileNotFoundError:
+        return None
+    if any(type(value) is not int or value < 0 for value in (device, inode, offset)):
+        raise ValueError("Invalid usage reset cutoff.")
+    return device, inode, offset
+
+
+def _save_cutoff(csv_path):
+    target = _cutoff_path(csv_path)
+    with RESET_LOCK, open(csv_path, "rb") as source:
+        stat = os.fstat(source.fileno())
+        # Only cut at a complete numeric line.
+        if stat.st_size == 0:
+            raise ValueError("Submission CSV has no header.")
+        source.seek(stat.st_size - 1)
+        if source.read(1) != b"\n":
+            raise ValueError("Submission CSV ends in a partial record.")
+        with NamedTemporaryFile(mode="w", dir=target.parent, delete=False) as output:
+            temporary = Path(output.name)
+            try:
+                json.dump([stat.st_dev, stat.st_ino, stat.st_size], output)
+                output.flush()
+                os.replace(temporary, target)
+            finally:
+                temporary.unlink(missing_ok=True)
 
 
 def get_token_count():
@@ -35,9 +73,10 @@ def get_token_count():
     csv_path = os.environ.get("TOK_SUBMISSIONS_CSV")
     if csv_path:
         vocab = os.environ.get("TOK_VOCAB_SIZE")
+        cutoff = _read_cutoff(csv_path)
         stat = Path(csv_path).stat()
         version = (stat.st_dev, stat.st_ino, stat.st_size, stat.st_mtime_ns)
-        return _csv_token_total(csv_path, int(vocab) if vocab else None, version)
+        return _csv_token_total(csv_path, int(vocab) if vocab else None, version, cutoff)
     # Preserve demo mode when no capture file is configured.
     return random.randint(300, 55000)
 
@@ -51,8 +90,24 @@ def home():
 def get_usage():
     try:
         return jsonify(tokens=get_token_count(), scale=REFERENCE_SCALE)
-    except (OSError, ValueError, RuntimeError) as error:
+    except (OSError, TypeError, ValueError, RuntimeError) as error:
         return jsonify(error=str(error)), 503
+
+
+@app.post("/api/usage/reset")
+def reset_usage():
+    csv_path = os.environ.get("TOK_SUBMISSIONS_CSV")
+    secret = os.environ.get("TOK_RESET_KEY")
+    if not csv_path or not secret:
+        return jsonify(error="Usage reset is disabled"), 503
+    authorization = request.headers.get("Authorization", "")
+    if not hmac.compare_digest(authorization.encode(), f"Bearer {secret}".encode()):
+        return jsonify(error="Invalid reset key"), 403
+    try:
+        _save_cutoff(csv_path)
+    except (OSError, ValueError) as error:
+        return jsonify(error=str(error)), 503
+    return jsonify(tokens=0, scale=REFERENCE_SCALE), 200, {"Cache-Control": "no-store"}
 
 
 @lru_cache(maxsize=64)

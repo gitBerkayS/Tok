@@ -2,6 +2,7 @@
 
 import csv
 import math
+import os
 from functools import lru_cache
 
 from .analyzer import FEATURE_COLUMNS, Features
@@ -64,13 +65,19 @@ def parse_features(row, default_vocab_size):
     return features
 
 
-def estimate_csv(path, default_vocab_size=None):
+def estimate_csv(path, default_vocab_size=None, *, cutoff=None):
     """Return per-row estimates and their sum for a capture CSV."""
     rows = []
     with open(path, encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if tuple(reader.fieldnames or ()) != FEATURE_COLUMNS:
             raise ValueError("Expected this CSV header: " + ",".join(FEATURE_COLUMNS))
+        if cutoff is not None:
+            device, inode, offset = cutoff
+            stat = os.fstat(handle.fileno())
+            if (stat.st_dev, stat.st_ino) == (device, inode) and offset <= stat.st_size:
+                handle.seek(offset)
+                reader = csv.DictReader(handle, fieldnames=FEATURE_COLUMNS)
         for row in reader:
             try:
                 if None in row or any(row[name] is None for name in FEATURE_COLUMNS):
