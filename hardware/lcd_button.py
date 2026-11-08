@@ -10,14 +10,17 @@ Button:
 
 The backlight colour follows the same levels as the web interface.
 
-If a 0.96" OLED (SSD1306 @ 0x3C) is attached, the same button drives it too: it shows the
-mascot + number only after a press (no polling), and goes dark when TOK is turned off.
+An attached SSD1306 OLED shows the mascot and the same count as the LCD.
+Both displays go dark when TOK is turned off.
 
 Wiring (Grove Base HAT): LCD -> any I2C port, button -> D5.
 Run on the Pi:  python lcd_button.py
+Use --live to show the active draft and refresh while typing.
 """
+import argparse
 import threading
 import time
+from urllib.parse import urlsplit
 
 from gpiozero import Button
 from smbus2 import SMBus
@@ -35,6 +38,7 @@ LCD_ADDR = 0x3E
 RGB_ADDR = 0x62
 BUTTON_PIN = 5  # Base HAT D5
 HOLD_S = 2  # hold the button this long to turn TOK off
+LIVE_REFRESH_S = 0.5
 
 # The LCD currently on the Pi has a dead blue channel, so mood colours are
 # remapped to red/green only. Set to False once you have a working LCD.
@@ -112,6 +116,7 @@ def display(line1, line2):
 
 # ---------- refresh ----------
 last_line1 = "TOK"
+last_live_usage = None
 powered = False
 oled = None
 oled_state = None
@@ -160,6 +165,12 @@ def refresh():
         print(f"Error: {frame.source}", flush=True)
         return
 
+    show_frame(frame)
+    print(f"{frame.line1} | {frame.line2} ({frame.source})", flush=True)
+
+
+def show_frame(frame):
+    global last_line1
     last_line1 = frame.line1
     if oled_state:
         if frame.tokens != oled_state.tokens:
@@ -167,20 +178,41 @@ def refresh():
         oled_state.tokens, oled_state.scale, oled_state.status = frame.tokens, frame.scale, "ok"
     display(frame.line1, frame.line2)
     set_rgb(backlight_for(frame))
-    print(f"{frame.line1} | {frame.line2} ({frame.source})", flush=True)
 
 
-def power_on():
-    global last_line1, powered
+def refresh_live(url):
+    global last_live_usage
+    try:
+        usage = tok.fetch_usage(url, timeout=2)
+    except (OSError, ValueError):
+        if last_live_usage != "error":
+            display(last_line1, "Refresh failed")
+            set_rgb(tok.ERROR_RGB)
+            if oled_state:
+                oled_state.status, oled_state.error = "error", "Refresh failed"
+        last_live_usage = "error"
+        return
+    if usage == last_live_usage:
+        return
+    tokens, scale = usage
+    _, level, rgb, _ = tok.level_for(tokens, scale)
+    frame = tok.Frame(tok.usage_line(tokens, scale), "Live draft", rgb, "live", level, tokens, scale)
+    show_frame(frame)
+    last_live_usage = usage
+
+
+def power_on(refresh_display):
+    global last_line1, last_live_usage, powered
     print("TOK on", flush=True)
     last_line1 = "TOK"
+    last_live_usage = None
     powered = True
     if oled_state:
-        oled_state.tokens, oled_state.status = None, "loading"  # mascot waits for the first reading
+        oled_state.tokens, oled_state.status = None, "loading"
     set_rgb(IDLE_RGB)
     display("TOK", "Starting up...")
     time.sleep(0.6)
-    refresh()
+    refresh_display()
 
 
 def power_off():
@@ -194,6 +226,16 @@ def power_off():
 
 
 if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="Show Tok usage on the LCD")
+    parser.add_argument("--live", action="store_true", help="Show live draft estimates while the LCD is on")
+    args = parser.parse_args()
+    live_url = urlsplit(tok.API_URL)._replace(path="/api/draft", query="", fragment="").geturl()
+    def refresh_display():
+        if args.live:
+            refresh_live(live_url)
+        else:
+            refresh()
+
     try:
         lcd_init()
         display("TOK", "Press to start")
@@ -203,18 +245,20 @@ if __name__ == "__main__":
             threading.Thread(target=oled_loop, daemon=True).start()
 
         while True:
-            button.wait_for_press()
+            if not button.wait_for_press(timeout=LIVE_REFRESH_S if on and args.live else None):
+                refresh_display()
+                continue
             button.wait_for_release(timeout=HOLD_S)
             held = button.is_pressed  # still down after HOLD_S -> long press
 
             if not on:
-                power_on()
+                power_on(refresh_display)
                 on = True
             elif held:
                 power_off()
                 on = False
             else:
-                refresh()
+                refresh_display()
 
             button.wait_for_release()
 

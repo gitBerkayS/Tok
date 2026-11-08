@@ -16,17 +16,29 @@ The Pi display reads the estimated token total for the current capture session f
 Example success response:
 
 ```json
-{"tokens":147,"scale":50000}
+{"tokens":147,"scale":10000}
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `tokens` | Nonnegative integer | Sum of the estimates for inferred submissions recorded since the capture backend started in reset mode. Unsent drafts and edits do not contribute. |
-| `scale` | Positive integer | Display reference budget, currently `50000`. The Pi calculates the percentage as `tokens / scale × 100`. Usage may exceed the scale. |
+| `scale` | Positive integer | Display reference budget, currently `10000`. The Pi calculates the percentage as `tokens / scale × 100`. Usage may exceed the scale. |
 
-An empty session returns `{"tokens":0,"scale":50000}`. A capture restart resets the total. The Pi should display the new value on its next refresh, even when it is lower than the previous value. Each response is a complete total. The Pi should replace its displayed value with that total.
+An empty session returns `{"tokens":0,"scale":10000}`. A capture restart resets the total. The Pi should display the new value on its next refresh, even when it is lower than the previous value. Each response is a complete total. The Pi should replace its displayed value with that total.
 
 If Flask cannot read the configured CSV or cannot produce an estimate, it returns HTTP `503` with an `error` string, such as `{"error":"Expected this CSV header: ..."}`. Treat a non-200 response, connection failure, timeout, or invalid JSON as a refresh failure. Do not use zero as a substitute for a failed refresh. A valid zero comes from a successful response.
+
+## Live draft endpoint
+
+`GET /api/draft` returns the same capture snapshot used by the Capture Monitor, with an estimated token count. Each snapshot includes `tokens`, `scale`, `status`, `source`, `revision`, and `updated_at`. A ready snapshot also includes the seven numeric `features` and the estimation `method`. An inactive, unavailable, or stale composer returns zero with its corresponding status. If Flask cannot reach the capture backend or cannot estimate the draft, it returns HTTP `503`. Live reads do not change the session total at `/api/usage`.
+
+`GET /api/draft/stream` opens a server-sent event connection. It sends the initial snapshot and checks for updates every half second. Each `draft` event carries the same JSON as `GET /api/draft`. A `capture-error` event carries an `error` string while capture or estimation is unavailable, and the stream resumes sending `draft` events after recovery.
+
+```sh
+curl -N http://YOUR_MAC_LAN_IP:5000/api/draft/stream
+```
+
+Run `env TOK_API_URL=http://YOUR_MAC_LAN_IP:5000/api/usage ./hardware/start.sh --live` from the Pi's checkout to display the draft. The launcher checks the Mac endpoint and starts the display client. The LCD and attached OLED share the same reading and refresh about twice per second while powered on.
 
 ## Mac setup
 

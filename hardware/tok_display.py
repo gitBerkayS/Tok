@@ -81,9 +81,9 @@ def parse_usage(data):
     return round(tokens), scale
 
 
-def fetch_usage(url=None):
+def fetch_usage(url=None, *, timeout=5):
     """GET the usage API. Returns (tokens, scale); raises OSError/ValueError on failure."""
-    with urllib.request.urlopen(url or API_URL, timeout=5) as response:
+    with urllib.request.urlopen(url or API_URL, timeout=timeout) as response:
         return parse_usage(json.load(response))
 
 
