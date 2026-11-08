@@ -81,3 +81,8 @@ python3 -B -m backend --track-submissions
 If prompted, allow **Input Monitoring** for the collector or its launcher in System Settings and restart the collector. Tok uses a listen-only key event tap. It does not save keystrokes. Tracking requires a nonempty verified composer, plain Enter, and that same composer becoming empty within 1.2 seconds. Shift+Enter, a draft cleared without Enter, and switching apps do not qualify. This is an inference, so an app that replaces the composer or clears it after the timeout may be missed. The row uses the latest snapshot observed before Enter.
 
 The dashboard shows inferred submissions and total submitted characters since backend launch. A display client can read the same totals at `http://127.0.0.1:8765/session`. This endpoint is local to the Mac. The submissions CSV contains one seven-feature row per accepted inference. Token totals require the engineer's model output.
+
+
+
+# Python Machine Learning Pre-Trained model and custom heuristic fitted and used for prediction using DataBricks
+# Pre Trained Model: https://huggingface.co/fromziro/JetonCount?utm_source=chatgpt.com
