@@ -1,11 +1,12 @@
 """TOK on a Grove 16x2 RGB LCD, with a Grove button as power + "Refresh Usage".
 
     Line 1: predicted token usage      e.g.  25,316 tok   51%
-    Line 2: a short comment on it      e.g.  Nice and steady (Gemini-written when GEMINI_API_KEY is set)
+    Line 2: a session comment or the live draft label
 
 Button:
     press while off  -> turn on and fetch the first prediction
-    press while on   -> refresh (each refresh is one GET /api/usage = one model run)
+    tap while on     -> refresh the current mode
+    double tap       -> switch between session total and live draft
     hold 2 seconds   -> turn off (screen and backlight dark)
 
 The backlight colour follows the same levels as the web interface.
@@ -15,7 +16,7 @@ Both displays go dark when TOK is turned off.
 
 Wiring (Grove Base HAT): LCD -> any I2C port, button -> D5.
 Run on the Pi:  python lcd_button.py
-Use --live to show the active draft and refresh while typing.
+Use --live to start in live draft mode.
 """
 import argparse
 import threading
@@ -26,6 +27,7 @@ from gpiozero import Button
 from smbus2 import SMBus
 
 import tok_display as tok  # shared with simulator.py: what to show, Gemini comments, colours
+from button_gestures import ButtonGestures
 
 # Optional 0.96" OLED on the same I2C bus (mascot + number). The button below
 # refreshes it too; if no OLED is attached the script just runs LCD-only.
@@ -38,6 +40,7 @@ LCD_ADDR = 0x3E
 RGB_ADDR = 0x62
 BUTTON_PIN = 5  # Base HAT D5
 HOLD_S = 2  # hold the button this long to turn TOK off
+DOUBLE_TAP_S = 0.35  # time from the first release to the next press
 LIVE_REFRESH_S = 0.5
 
 # The LCD currently on the Pi has a dead blue channel, so mood colours are
@@ -52,7 +55,7 @@ BROKEN_BLUE_PALETTE = {
 IDLE_RGB = (0, 90, 0) if BROKEN_BLUE else tok.IDLE_RGB
 
 bus = SMBus(1)
-button = Button(BUTTON_PIN, pull_up=False, bounce_time=0.1)  # Grove button is HIGH when pressed
+button = Button(BUTTON_PIN, pull_up=False, bounce_time=0.025)  # Grove button is HIGH when pressed
 
 
 # ---------- LCD ----------
@@ -165,17 +168,19 @@ def refresh():
         print(f"Error: {frame.source}", flush=True)
         return
 
-    show_frame(frame)
+    frame.line1 = tok.usage_line(frame.tokens, frame.scale, unit="total")
+    show_frame(frame, "Session total")
     print(f"{frame.line1} | {frame.line2} ({frame.source})", flush=True)
 
 
-def show_frame(frame):
+def show_frame(frame, mode_label):
     global last_line1
     last_line1 = frame.line1
     if oled_state:
         if frame.tokens != oled_state.tokens:
             oled_state.changed_at = time.monotonic()  # makes the mascot celebrate
         oled_state.tokens, oled_state.scale, oled_state.status = frame.tokens, frame.scale, "ok"
+        oled_state.token_label = mode_label
     display(frame.line1, frame.line2)
     set_rgb(backlight_for(frame))
 
@@ -197,7 +202,7 @@ def refresh_live(url):
     tokens, scale = usage
     _, level, rgb, _ = tok.level_for(tokens, scale)
     frame = tok.Frame(tok.usage_line(tokens, scale), "Live draft", rgb, "live", level, tokens, scale)
-    show_frame(frame)
+    show_frame(frame, "Live draft")
     last_live_usage = usage
 
 
@@ -227,11 +232,13 @@ def power_off():
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Show Tok usage on the LCD")
-    parser.add_argument("--live", action="store_true", help="Show live draft estimates while the LCD is on")
+    parser.add_argument("--live", action="store_true", help="Start in live draft mode")
     args = parser.parse_args()
+    live_mode = args.live
     live_url = urlsplit(tok.API_URL)._replace(path="/api/draft", query="", fragment="").geturl()
+
     def refresh_display():
-        if args.live:
+        if live_mode:
             refresh_live(live_url)
         else:
             refresh()
@@ -241,28 +248,35 @@ if __name__ == "__main__":
         display("TOK", "Press to start")
         set_rgb(IDLE_RGB)
         on = False
+        gestures = ButtonGestures(HOLD_S, DOUBLE_TAP_S)
+        button.when_pressed = lambda: gestures.record(True)
+        button.when_released = lambda: gestures.record(False)
         if oled:
             threading.Thread(target=oled_loop, daemon=True).start()
 
         while True:
-            if not button.wait_for_press(timeout=LIVE_REFRESH_S if on and args.live else None):
-                refresh_display()
-                continue
-            button.wait_for_release(timeout=HOLD_S)
-            held = button.is_pressed  # still down after HOLD_S -> long press
-
+            gesture = gestures.read(
+                timeout=LIVE_REFRESH_S if on and live_mode else None,
+                allow_double_tap=on,
+            )
             if not on:
                 power_on(refresh_display)
                 on = True
-            elif held:
+            elif gesture == "hold":
                 power_off()
                 on = False
             else:
+                if gesture == "double_tap":
+                    live_mode = not live_mode
+                    last_live_usage = None
+                    last_line1 = "TOK"
+                    if oled_state:
+                        oled_state.tokens, oled_state.status = None, "loading"
+                    display(last_line1, "Live draft" if live_mode else "Session total")
                 refresh_display()
-
-            button.wait_for_release()
 
     except KeyboardInterrupt:
         display("TOK", "Goodbye!")
     finally:
+        button.close()
         bus.close()

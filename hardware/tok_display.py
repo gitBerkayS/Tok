@@ -92,10 +92,10 @@ def level_for(tokens, scale):
     return next(level for level in LEVELS if ratio >= level[0])
 
 
-def usage_line(tokens, scale):
+def usage_line(tokens, scale, *, unit="tok"):
     pct = f"{tokens / scale * 100:.0f}%"
-    left = f"{tokens:,} tok"
-    if len(left) + 1 + len(pct) > WIDTH:  # very large numbers: drop "tok" to keep a gap
+    left = f"{tokens:,} {unit}"
+    if len(left) + 1 + len(pct) > WIDTH:  # very large numbers: drop the unit to keep a gap
         left = f"{tokens:,}"
     return left + pct.rjust(WIDTH - len(left))
 

@@ -67,6 +67,7 @@ FACES = {  # face -> (dark pixels, white glint pixels drawn on top)
 class State:
     def __init__(self):
         self.tokens = None
+        self.token_label = "tokens"
         self.scale = 5000
         self.status = "loading"  # loading | ok | error
         self.error = ""
@@ -187,7 +188,7 @@ def render_frame(state, now):
     num = f"{state.tokens:,}" if state.tokens is not None else "--"
     d.text((x0, 16), num, font=fit_font(d, num, right - x0), fill=255)
 
-    label = "offline" if state.status == "error" else ("tokens" if state.tokens is not None else "waiting")
+    label = "offline" if state.status == "error" else (state.token_label if state.tokens is not None else "waiting")
     d.text((x0, 38), label, font=small, fill=255)
 
     d.rectangle([x0, 52, right, 60], outline=255)
