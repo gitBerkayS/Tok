@@ -84,5 +84,42 @@ The dashboard shows inferred submissions and total submitted characters since ba
 
 
 
-# Python Machine Learning Pre-Trained model and custom heuristic fitted and used for prediction using DataBricks
-# Pre Trained Model: https://huggingface.co/fromziro/JetonCount?utm_source=chatgpt.com
+## Estimate tokens from a capture CSV
+
+From the repository root, run:
+
+```sh
+python3 -B -m backend --estimate-csv examples/prompt_features.synthetic.csv
+```
+
+The command reports the estimate and method for each row, plus their sum. Use a `submitted_features.*.csv` file for a session total because the draft CSV contains intermediate edits. The exporter and estimator use the exact seven-column header above. Every nonempty row supplies all seven raw values to the pinned JetonCount checkpoint. The estimator requires `torch`, `transformers`, and `safetensors`. Pass `--vocab-size` when starting capture to fill that column, or supply it during estimation to fill blank cells. Use the target tokenizer's confirmed vocabulary size. A nonpositive or nonfinite model prediction produces a result labeled `heuristic_fallback`.
+
+The first cell in `JetonCount_Inference.ipynb` runs the same estimator from a notebook. Run that cell from the repository root and set the path to your capture CSV. The existing Databricks examples are separate cells that accept raw text.
+
+To show the submission total on the interface and hardware API, start Flask with the submissions CSV path:
+
+```sh
+env TOK_SUBMISSIONS_CSV=/path/to/submitted_features.csv python3 -m interface.app
+```
+
+Set `TOK_VOCAB_SIZE` if the CSV leaves the vocabulary size blank. With no CSV configured, the interface uses demo data.
+
+## Reset the session on startup and serve the display
+
+From the repository root, start the capture backend with:
+
+```sh
+python3 -B -m backend --reset-on-startup --vocab-size YOUR_TOKENIZER_VOCAB_SIZE
+```
+
+Replace `YOUR_TOKENIZER_VOCAB_SIZE` with the confirmed integer size. Each successful start resets `prompt_features.current.csv` and `submitted_features.current.csv`. This mode enables submission tracking and keeps previously named captures available. Start the collector with `--track-submissions` so confirmed capture events populate the submissions file.
+
+In another terminal, run Flask from the same directory:
+
+```sh
+env TOK_SUBMISSIONS_CSV=submitted_features.current.csv TOK_INTERFACE_HOST=0.0.0.0 python3 -m interface.app
+```
+
+Flask starts at port 5000. Its `GET /api/usage` endpoint returns `{"tokens":0,"scale":50000}` at the start of a session and updates as submissions are recorded. Flask can stay running when the capture backend restarts.
+
+On the Pi, set `TOK_API_URL=http://YOUR_MAC_LAN_IP:5000/api/usage` in `hardware/.env` or in its environment before starting the display. Replace `YOUR_MAC_LAN_IP` with your Mac's address on the Pi's network. The display can also use the Mac's `.local` hostname if the Pi can resolve it.

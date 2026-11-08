@@ -1,7 +1,7 @@
 """Extract the seven raw JetonCount features from a draft."""
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import Optional
 
 
@@ -34,3 +34,6 @@ class Features:
             max(lengths, default=0),
             vocab_size,
         )
+
+
+FEATURE_COLUMNS = tuple(field.name for field in fields(Features))

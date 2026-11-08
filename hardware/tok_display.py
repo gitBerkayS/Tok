@@ -22,7 +22,6 @@ from pathlib import Path
 
 WIDTH = 16  # characters per LCD row
 
-API_URL = os.environ.get("TOK_API_URL", "http://127.0.0.1:5000/api/usage")
 DEFAULT_SCALE = 50000  # used if the API returns only a bare number
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
@@ -62,6 +61,7 @@ def load_env(path=None):
 
 
 load_env()
+API_URL = os.environ.get("TOK_API_URL", "http://127.0.0.1:5000/api/usage")
 
 
 # ---------- usage ----------

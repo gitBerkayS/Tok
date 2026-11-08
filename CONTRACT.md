@@ -1,79 +1,62 @@
-# TOK integration contract
+# Tok API contract for Raspberry Pi
 
-How the three parts connect, so we can build them separately and plug them together.
+The Pi display reads the estimated token total for the current capture session from Flask. The capture backend writes submitted prompt features to a CSV on the Mac. Flask reads that CSV, estimates each submission with JetonCount, and adds the estimates. The Pi needs the API URL and does not need the CSV or model files.
 
-```
-model (teammates)  ->  interface/app.py (Flask)  ->  web page / hardware/simulator.py / Pi LCD+OLED
-   get_token_count()      GET /api/usage              all read the same JSON
-```
+## Usage endpoint
 
-## 1. The one interface everything depends on
+| Item | Contract |
+| --- | --- |
+| Method and path | `GET /api/usage` |
+| Request | No body or query parameters |
+| Address | `http://<mac-lan-ip>:5000/api/usage` |
+| Success | HTTP `200`, `Content-Type: application/json` |
+| Timeout | The current Pi client uses a five-second HTTP timeout |
+| Side effects | Reading the endpoint does not record a submission or reset the session |
 
-`GET /api/usage` returns JSON:
+Example success response:
 
 ```json
-{"tokens": 25316, "scale": 50000}
+{"tokens":147,"scale":50000}
 ```
 
-| Field | Type | Rules |
-|---|---|---|
-| `tokens` | int | `>= 0`. Not a bool, not NaN/inf, not a string. |
-| `scale` | int | `> 0`. The token budget the bar and percentages are measured against. |
+| Field | Type | Meaning |
+| --- | --- | --- |
+| `tokens` | Nonnegative integer | Sum of the estimates for inferred submissions recorded since the capture backend started in reset mode. Unsent drafts and edits do not contribute. |
+| `scale` | Positive integer | Display reference budget, currently `50000`. The Pi calculates the percentage as `tokens / scale × 100`. Usage may exceed the scale. |
 
-Status `200` on success. The displays treat anything else (or a timeout) as "Refresh failed".
-The hardware also accepts a bare number as the body, but please send the object above.
+An empty session returns `{"tokens":0,"scale":50000}`. A capture restart resets the total. The Pi should display the new value on its next refresh, even when it is lower than the previous value. Each response is a complete total. The Pi should replace its displayed value with that total.
 
-## 2. What the model side has to do
+If Flask cannot read the configured CSV or cannot produce an estimate, it returns HTTP `503` with an `error` string, such as `{"error":"Expected this CSV header: ..."}`. Treat a non-200 response, connection failure, timeout, or invalid JSON as a refresh failure. Do not use zero as a substitute for a failed refresh. A valid zero comes from a successful response.
 
-Replace the body of `get_token_count()` in `interface/app.py` so it **returns an int**.
-That is the whole change. The page, the simulator and the Pi need nothing else.
+## Mac setup
 
-```python
-def get_token_count():
-    ...  # call the model here
-    return 12345  # int, >= 0
+Run the capture backend and Flask from the repository root. Replace `YOUR_TOKENIZER_VOCAB_SIZE` with the confirmed integer size.
+
+```sh
+python3 -B -m backend --reset-on-startup --vocab-size YOUR_TOKENIZER_VOCAB_SIZE
 ```
 
-Run `python interface/test_contract.py` before pushing. It fails if the return value breaks the contract.
+Start the macOS collector with `--track-submissions`. In a separate terminal, start Flask with the fixed submissions CSV path:
 
-**When does the model run?** There is no start function. Flask calls `get_token_count()` once per
-`GET /api/usage`, and that request *is* the trigger: the Pi button, the web "Refresh Usage" button
-and the simulator each send one. Load the model **once** (at import time, or lazily on the first call
-and then cached), never inside every call: the Pi gives up after 5 seconds.
-
-```python
-model = load_model()          # once, when app.py starts
-
-def get_token_count():
-    return int(model.predict(...))
+```sh
+env TOK_SUBMISSIONS_CSV=submitted_features.current.csv TOK_INTERFACE_HOST=0.0.0.0 python3 -m interface.app
 ```
 
-## 3. Who owns what
+Reset mode initializes `submitted_features.current.csv` with the seven-column header. Flask can stay running when capture restarts because the file path stays the same. Set `TOK_SUBMISSIONS_CSV` for hardware use. Without that setting, the interface uses demo values. The first model prediction may take longer if the checkpoint has not been loaded.
 
-| Part | Owner | Files |
-|---|---|---|
-| Web page + API | Interface owner | `interface/` |
-| Pi LCD/OLED, simulator, Gemini comments | Interface owner | `hardware/` |
-| Token model | Model teammates | the body of `get_token_count()` + their own module |
+## Pi setup and verification
 
-## 4. Where things run
+1. Put the Mac and Pi on the same reachable network.
+2. Set the display endpoint in `hardware/.env` on the Pi or export it before starting the display. Use the Mac's LAN address. A Mac `.local` hostname also works when the Pi can resolve it.
+3. From the Pi, check the endpoint before starting the display.
 
-- Flask: `interface/app.py`, port 5000. Currently binds to `127.0.0.1` only, so only the same machine can reach it.
-- Pi: `ssh hackcamp@hungergame.local`, project in `~/TOK`, Flask and the button script run there, so the Pi reads `http://127.0.0.1:5000/api/usage`.
-- Simulator: `hardware/simulator.py`, port 5001, reads the same API.
-- Secrets (Gemini key) live in `hardware/.env`, which is git-ignored. Never commit keys.
+```sh
+# hardware/.env
+TOK_API_URL=http://YOUR_MAC_LAN_IP:5000/api/usage
+```
 
-## 5. Open questions (fill in together, then delete the question)
+```sh
+curl --fail --max-time 5 http://YOUR_MAC_LAN_IP:5000/api/usage
+```
 
-- [ ] **Model input.** Does the model take a prompt? If yes: the page needs a text box and the API becomes `POST /api/usage` with `{"prompt": "..."}`, and we must decide whose prompt the hardware shows. If no: keep `GET` as is.
-- [ ] **Meaning of `tokens`.** Tokens for the last prompt, a running total for the session, or a prediction made before sending? The "over the limit" comments and the history graph depend on this.
-- [ ] **Who owns `scale`.** Hard-coded to `50000` in `interface/app.py` (`REFERENCE_SCALE`). Keep, or should the model/config decide?
-- [ ] **Latency.** The Pi gives up after 5 seconds and the Gemini comment after 4. What is the model's worst-case time?
-- [ ] **Failure behaviour.** Should `get_token_count()` raise on failure (page shows an error) or return a fallback? Currently an exception gives a 500, which the displays show as "Refresh failed".
-- [ ] **Network.** Do the Pi or a phone need to reach Flask on another machine? If yes, use `host="0.0.0.0"` and agree which machine runs it.
-- [ ] **Dependencies.** Libraries the model needs (`tiktoken`, Hugging Face, API keys) and who adds them to `interface/requirements.txt`.
-
-## 6. Changing the contract
-
-If the JSON shape changes (new field, POST, different scale), update this file in the same commit,
-and tell the interface owner so the page, `hardware/tok_display.py` and the simulator can be updated.
+Verify that a new session returns zero, an inferred submission raises the total, and restarting capture returns the total to zero. The existing Pi LCD client and simulator read this endpoint through `hardware/tok_display.py`. The separate `hardware/display.py` client accepts the same URL with `--url`.
