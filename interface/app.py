@@ -21,7 +21,7 @@ from backend.token_estimator import estimate_csv, estimate_tokens
 
 app = Flask(__name__)
 
-REFERENCE_SCALE = 10000  # token budget the UI bar is measured against
+REFERENCE_SCALE = 5000  # token budget the UI bar is measured against
 DRAFT_REFRESH_SECONDS = 0.5
 DRAFT_KEEPALIVE_SECONDS = 15
 RESET_LOCK = Lock()
