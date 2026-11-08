@@ -1,0 +1,13 @@
+.env
+__pycache__/
+.venv/
+tok/
+
+.DS_Store
+*.py[cod]
+
+# Temporary single-file dashboard and local capture sessions.
+/backend/dashboard.html
+/backend/dashboard/
+/prompt_features*.csv
+/submitted_features*.csv
