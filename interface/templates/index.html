@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TOK</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body>
+  <main class="card" data-scale="{{ reference_scale }}" data-mode="mascot" data-level="low" data-state="loading">
+    <header class="top">
+      <div class="brand">
+        <h1>TOK</h1>
+        <p>AI Token Usage Tracker</p>
+      </div>
+      <div class="modes" role="group" aria-label="Display mode">
+        <button type="button" class="mode" data-mode="mascot" aria-pressed="true">Mascot</button>
+        <button type="button" class="mode" data-mode="dashboard" aria-pressed="false">Dashboard</button>
+      </div>
+    </header>
+
+    <section class="hero">
+      <div class="mascot" id="mascot" data-face="loading" aria-hidden="true">
+        <svg viewBox="0 0 14 14" shape-rendering="crispEdges">
+          <g class="body">
+            <rect class="tip" x="6" y="0" width="2" height="1"/>
+            <rect class="m" x="6" y="1" width="2" height="2"/>
+            <rect class="m" x="4" y="3" width="6" height="1"/>
+            <rect class="m" x="2" y="4" width="10" height="1"/>
+            <rect class="m" x="1" y="5" width="12" height="7"/>
+            <rect class="m" x="2" y="12" width="10" height="1"/>
+            <rect class="shade" x="1" y="11" width="12" height="1"/>
+            <rect class="shade" x="2" y="12" width="10" height="1"/>
+            <rect class="shade" x="3" y="13" width="2" height="1"/>
+            <rect class="shade" x="9" y="13" width="2" height="1"/>
+            <rect class="shine" x="2" y="5" width="2" height="1"/>
+            <rect class="shine" x="2" y="6" width="1" height="1"/>
+          </g>
+
+          <g class="face f-calm">
+            <rect x="4" y="7" width="2" height="2"/><rect x="8" y="7" width="2" height="2"/>
+            <rect x="5" y="10" width="1" height="1"/><rect x="8" y="10" width="1" height="1"/>
+            <rect x="6" y="11" width="2" height="1"/>
+          </g>
+          <g class="face f-happy">
+            <rect x="3" y="8" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/><rect x="5" y="8" width="1" height="1"/>
+            <rect x="10" y="8" width="1" height="1"/><rect x="9" y="7" width="1" height="1"/><rect x="8" y="8" width="1" height="1"/>
+            <rect x="5" y="10" width="4" height="1"/><rect x="6" y="11" width="2" height="1"/>
+          </g>
+          <g class="face f-excited">
+            <rect x="4" y="6" width="2" height="3"/><rect x="8" y="6" width="2" height="3"/>
+            <rect class="glint" x="4" y="6" width="1" height="1"/><rect class="glint" x="8" y="6" width="1" height="1"/>
+            <rect x="6" y="10" width="2" height="2"/>
+          </g>
+          <g class="face f-maxed">
+            <rect x="3" y="6" width="3" height="3"/><rect x="8" y="6" width="3" height="3"/>
+            <rect class="glint" x="4" y="7" width="1" height="1"/><rect class="glint" x="9" y="7" width="1" height="1"/>
+            <rect x="5" y="10" width="4" height="2"/>
+          </g>
+          <g class="face f-celebrate">
+            <g class="star">
+              <rect x="4" y="6" width="1" height="1"/><rect x="3" y="7" width="3" height="1"/><rect x="4" y="8" width="1" height="1"/>
+              <rect x="9" y="6" width="1" height="1"/><rect x="8" y="7" width="3" height="1"/><rect x="9" y="8" width="1" height="1"/>
+            </g>
+            <rect x="5" y="10" width="4" height="1"/><rect x="6" y="11" width="2" height="1"/>
+          </g>
+          <g class="face f-loading">
+            <g class="look">
+              <rect x="4" y="7" width="2" height="2"/><rect x="8" y="7" width="2" height="2"/>
+            </g>
+            <rect x="6" y="10" width="2" height="1"/>
+          </g>
+          <g class="face f-error">
+            <rect x="3" y="6" width="1" height="1"/><rect x="5" y="6" width="1" height="1"/><rect x="4" y="7" width="1" height="1"/>
+            <rect x="3" y="8" width="1" height="1"/><rect x="5" y="8" width="1" height="1"/>
+            <rect x="8" y="6" width="1" height="1"/><rect x="10" y="6" width="1" height="1"/><rect x="9" y="7" width="1" height="1"/>
+            <rect x="8" y="8" width="1" height="1"/><rect x="10" y="8" width="1" height="1"/>
+            <rect x="6" y="10" width="2" height="1"/><rect x="5" y="11" width="1" height="1"/><rect x="8" y="11" width="1" height="1"/>
+          </g>
+        </svg>
+        <div class="floor"></div>
+      </div>
+
+      <div class="metric">
+        <span class="label">Latest prediction</span>
+        <div class="value">
+          <span id="token-count">&ndash;</span>
+          <span class="unit">tokens</span>
+        </div>
+        <div class="status" aria-live="polite">
+          <span class="dot"></span><span id="status-text">Thinking…</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="usage">
+      <div class="usage-head">
+        <span class="label">Usage visualization</span>
+        <span id="percent" class="percent">&ndash;</span>
+      </div>
+      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar">
+        <div class="fill" id="fill"></div>
+      </div>
+      <div class="scale">
+        <span>0</span>
+        <span id="scale-label">{{ "{:,}".format(reference_scale) }} token reference scale</span>
+      </div>
+    </section>
+
+    <section class="history">
+      <div class="usage-head">
+        <span class="label">Recent predictions</span>
+        <span id="history-count" class="hint"></span>
+      </div>
+      <svg id="spark" viewBox="0 0 300 64" aria-hidden="true">
+        <defs>
+          <linearGradient id="spark-fill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0" stop-color="currentColor" stop-opacity="0.35"/>
+            <stop offset="1" stop-color="currentColor" stop-opacity="0"/>
+          </linearGradient>
+        </defs>
+        <path id="spark-area" fill="url(#spark-fill)"/>
+        <polyline id="spark-line" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+        <circle id="spark-dot" r="0"/>
+      </svg>
+    </section>
+
+    <button id="refresh" class="refresh" type="button">Refresh Usage</button>
+    <p id="error" class="error" role="alert" hidden></p>
+  </main>
+
+  <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
