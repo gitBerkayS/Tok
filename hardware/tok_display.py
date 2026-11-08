@@ -168,6 +168,8 @@ class Frame:
     rgb: tuple
     source: str  # "gemini", "canned" or "error: ..." - handy for the simulator
     level: str = ""  # "low" | "mid" | "high" | "over" (empty on errors)
+    tokens: int = None  # raw numbers, for displays that draw their own (OLED)
+    scale: int = None
 
 
 _last_comment = None
@@ -182,7 +184,7 @@ def build_frame(tokens, scale):
         comment, source = canned_comment(tokens, scale, _last_comment), "canned"
     _last_comment = comment
     _, level, rgb, _ = level_for(tokens, scale)
-    return Frame(usage_line(tokens, scale), comment, rgb, source, level)
+    return Frame(usage_line(tokens, scale), comment, rgb, source, level, tokens, scale)
 
 
 def refresh_frame(url=None):
