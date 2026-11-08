@@ -15,12 +15,17 @@ const sparkDot = document.getElementById("spark-dot");
 
 const HISTORY_MAX = 20;
 const MIN_LOADING_MS = 450; // keep the "thinking" state visible on fast local requests
+const POLL_MS = 3000; // background check for new submissions
+const FETCH_TIMEOUT_MS = 5000;
 const history = [];
 
 let shown = 0;
 let animation = 0;
 let settleTimer = 0;
 let lastLevel = "low";
+let lastTokens = null; // null until the first successful response
+let inFlight = false;
+let failed = false;
 
 const fmt = (n) => Math.round(n).toLocaleString("en-US");
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -90,6 +95,9 @@ function render({ tokens, scale }) {
   percentEl.textContent = (ratio * 100).toFixed(1) + "%";
   scaleEl.textContent = fmt(scale) + " token reference scale";
 
+  // A lower total means capture restarted with a new session.
+  if (lastTokens !== null && tokens < lastTokens) history.length = 0;
+  lastTokens = tokens;
   history.push(tokens);
   if (history.length > HISTORY_MAX) history.shift();
   drawHistory();
@@ -101,7 +109,51 @@ function settle() {
 }
 
 // ---------- fetch ----------
+async function fetchUsage() {
+  // Same 5 s limit as the Pi client, so a hung request can't stall polling.
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  let res;
+  try {
+    res = await fetch("/api/usage", { cache: "no-store", signal: controller.signal });
+  } catch (err) {
+    throw new Error(err.name === "AbortError" ? "Request timed out" : err.message);
+  } finally {
+    clearTimeout(timer);
+  }
+  let data = null;
+  try { data = await res.json(); } catch (e) { /* non-JSON body */ }
+  // The API reports {error} with a 503 when it can't read the CSV or run the model.
+  if (!res.ok) throw new Error((data && data.error) || "Server returned " + res.status);
+  // Accept either {tokens, scale} or a bare number.
+  const payload = typeof data === "number" ? { tokens: data } : data || {};
+  const tokens = Number(payload.tokens);
+  if (!Number.isFinite(tokens) || tokens < 0) throw new Error("Unexpected response");
+  return { tokens, scale: Number(payload.scale) || Number(card.dataset.scale) || 5000 };
+}
+
+function showResult(usage) {
+  failed = false;
+  errorEl.hidden = true;
+  render(usage);
+  setStatus("result", "celebrate", "New result");
+  clearTimeout(settleTimer);
+  settleTimer = setTimeout(settle, 1700);
+}
+
+function showError(err) {
+  // Keep the last good total on screen; a failed refresh is not zero.
+  failed = true;
+  clearTimeout(settleTimer);
+  setStatus("error", "error", "Connection error");
+  errorEl.textContent = "Couldn't load usage. " + err.message;
+  errorEl.hidden = false;
+}
+
+// Manual refresh: always shows the "thinking" state and replays the result.
 async function loadUsage() {
+  if (inFlight) return;
+  inFlight = true;
   clearTimeout(settleTimer);
   refreshBtn.disabled = true;
   refreshBtn.textContent = "Refreshing…";
@@ -109,27 +161,29 @@ async function loadUsage() {
   setStatus("loading", "loading", "Thinking…");
 
   try {
-    const [res] = await Promise.all([fetch("/api/usage", { cache: "no-store" }), sleep(MIN_LOADING_MS)]);
-    if (!res.ok) throw new Error("Server returned " + res.status);
-    const data = await res.json();
-    // Accept either {tokens, scale} or a bare number.
-    const payload = typeof data === "number" ? { tokens: data } : data;
-    const tokens = Number(payload.tokens);
-    if (!Number.isFinite(tokens)) throw new Error("Unexpected response");
-
-    render({
-      tokens,
-      scale: Number(payload.scale) || Number(card.dataset.scale) || 5000,
-    });
-    setStatus("result", "celebrate", "New result");
-    settleTimer = setTimeout(settle, 1700);
+    const [usage] = await Promise.all([fetchUsage(), sleep(MIN_LOADING_MS)]);
+    showResult(usage);
   } catch (err) {
-    setStatus("error", "error", "Connection error");
-    errorEl.textContent = "Couldn't load usage. " + err.message;
-    errorEl.hidden = false;
+    showError(err);
   } finally {
+    inFlight = false;
     refreshBtn.disabled = false;
     refreshBtn.textContent = "Refresh Usage";
+  }
+}
+
+// Background poll: quiet unless the total changes or the connection state does.
+async function pollUsage() {
+  if (inFlight || document.hidden) return;
+  inFlight = true;
+  try {
+    const usage = await fetchUsage();
+    if (usage.tokens !== lastTokens) showResult(usage);
+    else if (failed) { failed = false; errorEl.hidden = true; settle(); }
+  } catch (err) {
+    showError(err);
+  } finally {
+    inFlight = false;
   }
 }
 
@@ -152,3 +206,5 @@ if (saved === "mascot" || saved === "dashboard") setMode(saved);
 
 refreshBtn.addEventListener("click", loadUsage);
 loadUsage();
+setInterval(pollUsage, POLL_MS);
+document.addEventListener("visibilitychange", pollUsage);
