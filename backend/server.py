@@ -1,4 +1,4 @@
-"""Load dashboard assets and run the backend on the loopback interface."""
+"""Run the loopback backend with an optional local preview."""
 
 from http.server import ThreadingHTTPServer
 from pathlib import Path
@@ -6,15 +6,13 @@ from pathlib import Path
 from .http_api import make_handler
 
 
-DASHBOARD_DIR = Path(__file__).with_name("dashboard")
+LOCAL_PREVIEW = Path(__file__).with_name("dashboard.html")
 
 
 def serve(port, store):
-    assets = {
-        "/": ("text/html; charset=utf-8", (DASHBOARD_DIR / "index.html").read_bytes()),
-        "/dashboard.css": ("text/css; charset=utf-8", (DASHBOARD_DIR / "dashboard.css").read_bytes()),
-        "/dashboard.js": ("text/javascript; charset=utf-8", (DASHBOARD_DIR / "dashboard.js").read_bytes()),
-    }
+    assets = {}
+    if LOCAL_PREVIEW.is_file():
+        assets["/"] = ("text/html; charset=utf-8", LOCAL_PREVIEW.read_bytes())
     with ThreadingHTTPServer(("127.0.0.1", port), make_handler(store, assets)) as server:
         print(f"Tok analyzer on http://127.0.0.1:{server.server_port}", flush=True)
         try:
