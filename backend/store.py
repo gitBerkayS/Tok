@@ -6,7 +6,7 @@ from dataclasses import asdict
 from datetime import datetime, timezone
 from hashlib import sha256
 from threading import Lock
-
+from .token_estimator import estimate_draft
 from .analyzer import Features
 
 
@@ -82,26 +82,61 @@ class ReadingStore:
             last = self.reading["revision"]
             if last is not None and revision <= last:
                 return False
-            updated_at = datetime.now(timezone.utc).isoformat()
+
+        updated_at = datetime.now(timezone.utc).isoformat()
+
+        if status == "ready":
+            key = (
+                source,
+                sha256(draft.encode("utf-8", errors="surrogatepass")).digest()
+            )
+
+            features = Features.from_draft(draft, self.vocab_size)
+            feature_values = asdict(features)
+
+            try:
+                token_result = estimate_draft(draft)
+            except Exception as error:
+                token_result = {
+                    "estimated_tokens": max(1, round(len(draft) / 4)) if draft else 0,
+                    "method": "heuristic_fallback",
+                    "approximate": True,
+                    "error": str(error),
+                }
+
+            result = {
+                "status": "ready",
+                "features": feature_values,
+                **token_result,
+            }
+        else:
+            key = None
+            result = {"status": status}
+
+        with self.lock:
+            last = self.reading["revision"]
+            if last is not None and revision <= last:
+                return False
+
             if status == "ready":
-                # Deduplicate refreshes without retaining raw draft text.
-                key = (source, sha256(draft.encode("utf-8", errors="surrogatepass")).digest())
                 if key == self.last_draft_key:
                     result = self.last_result
                 else:
-                    features = Features.from_draft(draft, self.vocab_size)
-                    feature_values = asdict(features)
                     if draft:
                         self.feature_csv.append(features)
                         self.rows_written += 1
                         self.recent_rows.append({
-                            "source": source, "updated_at": updated_at, "features": feature_values,
+                            "source": source,
+                            "updated_at": updated_at,
+                            "features": feature_values,
                         })
-                    result = {"status": "ready", "features": feature_values}
-                    self.last_draft_key, self.last_result = key, result
+
+                    self.last_draft_key = key
+                    self.last_result = result
             else:
-                self.last_draft_key = self.last_result = None
-                result = {"status": status}
+                self.last_draft_key = None
+                self.last_result = None
+
             self.last_update = time.monotonic()
             self.reading = {
                 "revision": revision,
@@ -109,4 +144,5 @@ class ReadingStore:
                 "updated_at": updated_at,
                 **result,
             }
+
             return True

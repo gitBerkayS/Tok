@@ -6,10 +6,56 @@ import os
 from functools import lru_cache
 
 from .analyzer import FEATURE_COLUMNS, Features
+import requests
 
 
 MODEL_ID = "fromziro/JetonCount"
 REVISION = "b07f42658cdbeca9934323c5d55f5d53df6cfcb9"
+
+
+def estimate_draft(draft):
+    """Estimate tokens using the deployed Databricks JetonCount model."""
+
+    if not draft.strip():
+        return {
+            "estimated_tokens": 0,
+            "method": "empty",
+            "approximate": False,
+        }
+
+    host = os.environ["DATABRICKS_HOST"].rstrip("/")
+    token = os.environ["DATABRICKS_TOKEN"]
+    endpoint = os.getenv("DATABRICKS_ENDPOINT", "jetoncount-estimator")
+
+    url = f"{host}/serving-endpoints/{endpoint}/invocations"
+
+    response = requests.post(
+        url,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json",
+        },
+        json={
+            "dataframe_records": [{"text": draft}]
+        },
+        timeout=(10, 120),
+    )
+
+    response.raise_for_status()
+
+    result = response.json()
+    predictions = result.get("predictions", [])
+
+    if not predictions:
+        raise RuntimeError("Databricks returned no predictions.")
+
+    prediction = predictions[0]
+
+    return {
+        "estimated_tokens": prediction["estimated_tokens"],
+        "method": prediction["method"],
+        "approximate": prediction["approximate"],
+    }
 
 
 @lru_cache(maxsize=1)
