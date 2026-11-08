@@ -18,10 +18,10 @@ Tok detects the frontmost supported app on macOS, reads its focused ChatGPT comp
 From the project root, start the backend with Python 3.9 or later:
 
 ```sh
-python3 -B -m backend --csv prompt_features.csv
+python3 -B -m backend
 ```
 
-Choose a fresh filename for each session. If your engineer has confirmed the target tokenizer's vocabulary size, pass it with `--vocab-size N`. Otherwise, the CSV leaves that column blank for the engineer to fill before inference.
+Tok creates a timestamped draft CSV and prints its path. You can supply a preferred name with `--csv`. If the file already exists, Tok adds a numbered suffix and keeps the previous capture. If your engineer has confirmed the target tokenizer's vocabulary size, pass it with `--vocab-size N`. Otherwise, the CSV leaves that column blank for the engineer to fill before inference.
 
 In another terminal, compile and start the collector:
 
@@ -71,7 +71,7 @@ Use a separate CSV session for synthetic checks. [PLAN.md](PLAN.md) tracks live 
 Start a new backend session with fresh filenames, and run the collector with submission tracking enabled:
 
 ```sh
-python3 -B -m backend --csv prompt_features.session.csv --submissions-csv submitted_features.session.csv
+python3 -B -m backend --track-submissions
 ```
 
 ```sh

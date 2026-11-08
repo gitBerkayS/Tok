@@ -89,6 +89,7 @@ private final class Collector {
     private var lastSent: Snapshot?
     private var lastSentAt: TimeInterval = -.infinity
     private var sending = false
+    private var backendConnected: Bool?
     private var lastProbe: String?
     private var keyTap: CFMachPort?
     private var enterCandidate: (source: String, draft: String, composer: AXUIElement, deadline: TimeInterval)?
@@ -105,6 +106,9 @@ private final class Collector {
     }
 
     func start() {
+        if !probe {
+            fputs("Tok collector started. Focus a supported prompt composer to capture a draft.\n", stderr)
+        }
         activationObserver = workspace.notificationCenter.addObserver(
             forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main
         ) { [weak self] _ in
@@ -454,6 +458,14 @@ private final class Collector {
             DispatchQueue.main.async {
                 guard let self = self else { return }
                 self.sending = false
+                if self.backendConnected != delivered {
+                    self.backendConnected = delivered
+                    if delivered {
+                        fputs("Connected to Tok backend at http://127.0.0.1:\(self.port)/.\n", stderr)
+                    } else {
+                        fputs("Tok backend did not accept the update. Check http://127.0.0.1:\(self.port)/health.\n", stderr)
+                    }
+                }
                 if delivered {
                     self.lastSent = current
                     self.lastSentAt = ProcessInfo.processInfo.systemUptime
