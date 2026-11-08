@@ -211,8 +211,9 @@ def refresh_live(url):
     global last_live_usage
     try:
         usage = tok.fetch_usage(url, timeout=2)
-    except (OSError, ValueError):
+    except (OSError, ValueError) as error:
         if last_live_usage != "error":
+            print(f"Live draft fetch failed: {error}", flush=True)
             display(last_line1, "Refresh failed")
             set_rgb(tok.ERROR_RGB)
             if oled_state:
@@ -225,6 +226,7 @@ def refresh_live(url):
     _, level, rgb, _ = tok.level_for(tokens, scale)
     frame = tok.Frame(tok.usage_line(tokens, scale), "Live draft", rgb, "live", level, tokens, scale)
     show_frame(frame, "Live draft")
+    print(f"Live draft: {tokens}/{scale}", flush=True)
     last_live_usage = usage
 
 
@@ -302,6 +304,7 @@ if __name__ == "__main__":
             else:
                 if gesture == "touch":
                     live_mode = not live_mode
+                    print(f"Touch -> {'live draft' if live_mode else 'session total'}", flush=True)
                     last_live_usage = None
                     last_line1 = "TOK"
                     if oled_state:
