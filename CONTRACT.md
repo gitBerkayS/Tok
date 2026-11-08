@@ -8,7 +8,7 @@ The Pi display reads the estimated token total for the current capture session f
 | --- | --- |
 | Method and path | `GET /api/usage` |
 | Request | No body or query parameters |
-| Address | `http://<mac-lan-ip>:5000/api/usage` |
+| Address | `http://<local-ip>:5000/api/usage` |
 | Success | HTTP `200`, `Content-Type: application/json` |
 | Timeout | The current Pi client uses a five-second HTTP timeout |
 | Side effects | Reading the endpoint does not record a submission or reset the session |
