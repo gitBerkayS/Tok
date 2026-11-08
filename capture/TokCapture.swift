@@ -46,6 +46,30 @@ private func urlAttribute(_ element: AXUIElement, _ name: String) -> URL? {
     return (value as? URL) ?? (value as? String).flatMap { URL(string: $0) }
 }
 
+private func safariAddressURL(in window: AXUIElement) -> URL? {
+    let children = attribute(window, kAXChildrenAttribute) as? [AXUIElement] ?? []
+    guard let toolbar = children.first(where: {
+        attribute($0, kAXRoleAttribute) as? String == kAXToolbarRole
+    }) else { return nil }
+
+    // Search browser chrome only. A webpage can provide its own AX identifiers.
+    var pending = [toolbar]
+    let deadline = ProcessInfo.processInfo.systemUptime + 0.2
+    for _ in 0..<32 {
+        guard ProcessInfo.processInfo.systemUptime < deadline,
+              let element = pending.popLast() else { break }
+        let role = attribute(element, kAXRoleAttribute) as? String
+        if role == kAXTextFieldRole,
+           attribute(element, kAXIdentifierAttribute) as? String == "WEB_BROWSER_ADDRESS_AND_SEARCH_FIELD" {
+            return urlAttribute(element, kAXURLAttribute) ?? urlAttribute(element, kAXValueAttribute)
+        }
+        if role == kAXToolbarRole || role == kAXGroupRole {
+            pending.append(contentsOf: attribute(element, kAXChildrenAttribute) as? [AXUIElement] ?? [])
+        }
+    }
+    return nil
+}
+
 private struct Snapshot: Equatable {
     let source: String?
     let status: String
@@ -68,6 +92,10 @@ private struct Snapshot: Equatable {
 }
 
 private final class Collector {
+    // WebKit can represent a cleared contenteditable as a newline or zero-width placeholder.
+    private let emptyDraftCharacters = CharacterSet.whitespacesAndNewlines.union(
+        CharacterSet(charactersIn: "\u{200B}\u{FEFF}")
+    )
     private let browsers = ["com.google.Chrome": "chrome", "com.apple.Safari": "safari"]
     private let codexBundleID = "com.openai.codex"
     private let workspace = NSWorkspace.shared
@@ -367,6 +395,9 @@ private final class Collector {
             if browser != nil, role == "AXWebArea" {
                 webAreaFound = true
                 pageURL = urlAttribute(element, kAXURLAttribute)
+                if pageURL == nil, source == "safari" {
+                    pageURL = urlAttribute(element, kAXDocumentAttribute)
+                }
                 break
             }
             guard let next = node.parent, !CFEqual(element, next) else { break }
@@ -376,6 +407,9 @@ private final class Collector {
             if source == "safari", pageURL == nil,
                let window = elementAttribute(appElement, kAXFocusedWindowAttribute) {
                 pageURL = urlAttribute(window, kAXDocumentAttribute)
+                if pageURL == nil, webAreaFound {
+                    pageURL = safariAddressURL(in: window)
+                }
             }
             guard pageURL?.scheme?.lowercased() == "https",
                   pageURL?.host?.lowercased() == "chatgpt.com" else {
@@ -420,7 +454,15 @@ private final class Collector {
         verifiedComposer = composer
         if probe { return unavailable }
         guard let draft = attribute(composer, kAXValueAttribute) as? String else { return unavailable }
-        return Snapshot(source: source, status: "ready", draft: draft)
+        let visibleDraft = draft.trimmingCharacters(in: emptyDraftCharacters)
+        // Codex can return placeholder text followed by an editor line break
+        // even when AXPlaceholderValue is unavailable.
+        let empty = visibleDraft.isEmpty || (
+            source == "codex" &&
+            (draft == "Work with Codex\n" || draft == "Do anything\n" ||
+             visibleDraft == attribute(composer, kAXPlaceholderValueAttribute) as? String)
+        )
+        return Snapshot(source: source, status: "ready", draft: empty ? "" : draft)
     }
 
     private func reportProbe(_ message: String) {
