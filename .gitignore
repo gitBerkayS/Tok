@@ -1,0 +1,8 @@
+.DS_Store
+__pycache__/
+*.py[cod]
+
+# Temporary single-file dashboard and local capture sessions.
+/backend/dashboard.html
+/prompt_features*.csv
+/submitted_features*.csv
