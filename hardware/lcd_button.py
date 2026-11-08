@@ -44,6 +44,7 @@ TOUCH_PIN = 22  # Grove touch sensor on Base HAT D22 (HIGH while touched)
 HOLD_S = 2  # hold the button this long to turn TOK off
 DOUBLE_TAP_S = 0.35  # time from the first release to the next press
 LIVE_REFRESH_S = 0.5
+TOTAL_REFRESH_S = 2
 
 # The LCD currently on the Pi has a dead blue channel, so mood colours are
 # remapped to red/green only. Set to False once you have a working LCD.
@@ -121,7 +122,7 @@ def display(line1, line2):
 
 # ---------- refresh ----------
 last_line1 = "TOK"
-last_live_usage = None
+last_usage = None
 powered = False
 oled = None
 oled_state = None
@@ -156,13 +157,14 @@ def backlight_for(frame):
 
 
 def refresh():
-    global last_line1
+    global last_usage
     print("Refreshing TOK...", flush=True)
     set_rgb(tok.BUSY_RGB)
     display(last_line1, "Refreshing...")
 
     frame = tok.refresh_frame()
     if frame.source.startswith("error"):
+        last_usage = "error"
         display(last_line1, frame.line2)
         set_rgb(tok.ERROR_RGB)
         if oled_state:
@@ -172,10 +174,12 @@ def refresh():
 
     frame.line1 = tok.usage_line(frame.tokens, frame.scale, unit="total")
     show_frame(frame, "Session total")
+    last_usage = frame.tokens, frame.scale
     print(f"{frame.line1} | {frame.line2} ({frame.source})", flush=True)
 
 
 def reset_usage():
+    global last_usage
     set_rgb(tok.BUSY_RGB)
     display(last_line1, "Resetting...")
     try:
@@ -192,6 +196,7 @@ def reset_usage():
     frame = tok.Frame(tok.usage_line(tokens, scale, unit="total"), "Usage reset", rgb, "reset",
                       level, tokens, scale)
     show_frame(frame, "Session total")
+    last_usage = tokens, scale
     return True
 
 
@@ -207,32 +212,36 @@ def show_frame(frame, mode_label):
     set_rgb(backlight_for(frame))
 
 
-def refresh_live(url):
-    global last_live_usage
+def poll_usage(url, *, live):
+    global last_usage
     try:
         usage = tok.fetch_usage(url, timeout=2)
     except (OSError, ValueError):
-        if last_live_usage != "error":
+        if last_usage != "error":
             display(last_line1, "Refresh failed")
             set_rgb(tok.ERROR_RGB)
             if oled_state:
                 oled_state.status, oled_state.error = "error", "Refresh failed"
-        last_live_usage = "error"
+        last_usage = "error"
         return
-    if usage == last_live_usage:
+    if usage == last_usage:
         return
     tokens, scale = usage
     _, level, rgb, _ = tok.level_for(tokens, scale)
-    frame = tok.Frame(tok.usage_line(tokens, scale), "Live draft", rgb, "live", level, tokens, scale)
-    show_frame(frame, "Live draft")
-    last_live_usage = usage
+    mode_label = "Live draft" if live else "Session total"
+    line2 = mode_label if live else tok.canned_comment(tokens, scale)
+    unit = "tok" if live else "total"
+    frame = tok.Frame(tok.usage_line(tokens, scale, unit=unit), line2, rgb, "poll",
+                      level, tokens, scale)
+    show_frame(frame, mode_label)
+    last_usage = usage
 
 
 def power_on(refresh_display):
-    global last_line1, last_live_usage, powered
+    global last_line1, last_usage, powered
     print("TOK on", flush=True)
     last_line1 = "TOK"
-    last_live_usage = None
+    last_usage = None
     powered = True
     if oled_state:
         oled_state.tokens, oled_state.status = None, "loading"
@@ -261,7 +270,7 @@ if __name__ == "__main__":
 
     def refresh_display():
         if live_mode:
-            refresh_live(live_url)
+            poll_usage(live_url, live=True)
         else:
             refresh()
 
@@ -283,7 +292,7 @@ if __name__ == "__main__":
 
         while True:
             gesture = gestures.read(
-                timeout=LIVE_REFRESH_S if on and live_mode else None,
+                timeout=(LIVE_REFRESH_S if live_mode else TOTAL_REFRESH_S) if on else None,
                 allow_double_tap=on,
             )
             if not on:
@@ -298,11 +307,13 @@ if __name__ == "__main__":
                 if reset_usage():
                     live_mode = False
                 else:
-                    last_live_usage = None
+                    last_usage = None
+            elif gesture is None:
+                poll_usage(live_url if live_mode else tok.API_URL, live=live_mode)
             else:
                 if gesture == "touch":
                     live_mode = not live_mode
-                    last_live_usage = None
+                    last_usage = None
                     last_line1 = "TOK"
                     if oled_state:
                         oled_state.tokens, oled_state.status = None, "loading"

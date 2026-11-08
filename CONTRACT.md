@@ -42,7 +42,7 @@ If Flask cannot read the configured CSV or cannot produce an estimate, it return
 curl -N http://YOUR_MAC_LAN_IP:5000/api/draft/stream
 ```
 
-Run `env TOK_API_URL=http://YOUR_MAC_LAN_IP:5000/api/usage ./hardware/start.sh --live` from the Pi's checkout to start in live draft mode. While the display is on, tap twice in quick succession to reset the session total and display zero. If started with `--live`, a successful reset switches the display to the session total. Use the touch sensor to switch between the session total and live draft. A single tap refreshes the current mode, and a two-second hold turns the display off. The LCD and attached OLED share the same reading. Live draft mode refreshes about twice per second.
+Run `env TOK_API_URL=http://YOUR_MAC_LAN_IP:5000/api/usage ./hardware/start.sh --live` from the Pi's checkout to start in live draft mode. While the display is on, tap twice in quick succession to reset the session total and display zero. If started with `--live`, a successful reset switches the display to the session total. Use the touch sensor to switch between the session total and live draft. A single tap refreshes the current mode, and a two-second hold turns the display off. The LCD and attached OLED share the same reading. Live draft mode refreshes about twice per second. Session total mode refreshes about every two seconds, so new submissions show up automatically after a reset.
 
 ## Mac setup
 
