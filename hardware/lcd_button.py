@@ -6,7 +6,7 @@
 Button:
     press while off  -> turn on and fetch the first prediction
     tap while on     -> refresh the current mode
-    double tap       -> switch between session total and live draft
+    touch sensor     -> switch between session total and live draft (touch again to switch back)
     hold 2 seconds   -> turn off (screen and backlight dark)
 
 The backlight colour follows the same levels as the web interface.
@@ -39,6 +39,7 @@ except ImportError:
 LCD_ADDR = 0x3E
 RGB_ADDR = 0x62
 BUTTON_PIN = 5  # Base HAT D5
+TOUCH_PIN = 22  # Grove touch sensor on Base HAT D22 (HIGH while touched)
 HOLD_S = 2  # hold the button this long to turn TOK off
 DOUBLE_TAP_S = 0.35  # time from the first release to the next press
 LIVE_REFRESH_S = 0.5
@@ -251,22 +252,29 @@ if __name__ == "__main__":
         gestures = ButtonGestures(HOLD_S, DOUBLE_TAP_S)
         button.when_pressed = lambda: gestures.record(True)
         button.when_released = lambda: gestures.record(False)
+        try:
+            touch = Button(TOUCH_PIN, pull_up=False, bounce_time=0.05)
+            touch.when_pressed = gestures.touch
+        except Exception as error:  # sensor not attached: the button still works
+            print(f"Touch sensor unavailable ({error})", flush=True)
         if oled:
             threading.Thread(target=oled_loop, daemon=True).start()
 
         while True:
             gesture = gestures.read(
                 timeout=LIVE_REFRESH_S if on and live_mode else None,
-                allow_double_tap=on,
+                allow_double_tap=False,  # modes switch on the touch sensor now
             )
             if not on:
+                if gesture == "touch":
+                    continue  # touching does not power TOK on
                 power_on(refresh_display)
                 on = True
             elif gesture == "hold":
                 power_off()
                 on = False
             else:
-                if gesture == "double_tap":
+                if gesture == "touch":
                     live_mode = not live_mode
                     last_live_usage = None
                     last_line1 = "TOK"
