@@ -63,6 +63,39 @@ FACES = {  # face -> (dark pixels, white glint pixels drawn on top)
 }
 
 
+def load_designed_faces():
+    """Use the Gemini-designed faces from interface/static/faces.json if present and valid.
+
+    Same file the web page reads, so both screens match. Anything wrong with it and the
+    built-in faces above stay untouched.
+    """
+    path = Path(__file__).resolve().parent.parent / "interface" / "static" / "faces.json"
+    try:
+        faces = json.loads(path.read_text())["faces"]
+        parsed = {}
+        for name, face in faces.items():
+            if name not in FACES:
+                continue
+            rects = {}
+            for kind in ("dark", "accent", "glint"):
+                rects[kind] = [tuple(r) for r in face.get(kind, [])]
+                for r in rects[kind]:
+                    if len(r) != 4 or not all(isinstance(n, int) for n in r) or r[2] < 1 or r[3] < 1 \
+                            or r[0] < 0 or r[1] < 0 or r[0] + r[2] > 14 or r[1] + r[3] > 14:
+                        raise ValueError(f"bad rectangle {r}")
+            # On the 1-bit OLED the yellow accents are just more dark pixels.
+            parsed[name] = (rects["dark"] + rects["accent"], rects["glint"])
+        FACES.update(parsed)
+        print(f"[TOK] designed faces loaded: {', '.join(parsed)}")
+    except FileNotFoundError:
+        pass
+    except Exception as err:
+        print(f"[TOK] faces.json ignored ({err}); using built-in faces")
+
+
+load_designed_faces()
+
+
 # ---------- shared state, filled by the polling thread ----------
 class State:
     def __init__(self):
