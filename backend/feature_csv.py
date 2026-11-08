@@ -2,9 +2,15 @@
 
 import csv
 import os
-from dataclasses import astuple, fields
+from contextlib import contextmanager
+from dataclasses import astuple
+from pathlib import Path
+from tempfile import NamedTemporaryFile
 
-from .analyzer import Features
+from .analyzer import FEATURE_COLUMNS, Features
+
+CURRENT_DRAFT_CSV = "prompt_features.current.csv"
+CURRENT_SUBMISSIONS_CSV = "submitted_features.current.csv"
 
 
 def _private_file(path, flags):
@@ -27,7 +33,7 @@ class FeatureCSV:
     def __init__(self, output):
         self.output = output
         self.writer = csv.writer(output)
-        self.writer.writerow(field.name for field in fields(Features))
+        self.writer.writerow(FEATURE_COLUMNS)
         self.output.flush()
 
     def append(self, features: Features):
@@ -39,3 +45,18 @@ class FeatureCSV:
             self.output.seek(position)
             self.output.truncate()
             raise
+
+
+@contextmanager
+def reset_csv(path):
+    """Publish a fresh header atomically so readers never see a truncated CSV."""
+    with NamedTemporaryFile(
+        mode="w", encoding="utf-8", newline="", dir=path.parent, delete=False
+    ) as output:
+        temporary_path = Path(output.name)
+        try:
+            writer = FeatureCSV(output)
+            os.replace(temporary_path, path)
+            yield writer
+        finally:
+            temporary_path.unlink(missing_ok=True)
