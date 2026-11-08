@@ -14,7 +14,7 @@ from backend.token_estimator import estimate_csv
 
 app = Flask(__name__)
 
-REFERENCE_SCALE = 10000  # token budget the UI bar is measured against
+REFERENCE_SCALE = 5000  # token budget the UI bar is measured against
 
 
 @lru_cache(maxsize=1)

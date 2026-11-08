@@ -16,15 +16,15 @@ The Pi display reads the estimated token total for the current capture session f
 Example success response:
 
 ```json
-{"tokens":147,"scale":50000}
+{"tokens":147,"scale":5000}
 ```
 
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `tokens` | Nonnegative integer | Sum of the estimates for inferred submissions recorded since the capture backend started in reset mode. Unsent drafts and edits do not contribute. |
-| `scale` | Positive integer | Display reference budget, currently `50000`. The Pi calculates the percentage as `tokens / scale × 100`. Usage may exceed the scale. |
+| `scale` | Positive integer | Display reference budget, currently `5000`. The Pi calculates the percentage as `tokens / scale × 100`. Usage may exceed the scale. |
 
-An empty session returns `{"tokens":0,"scale":50000}`. A capture restart resets the total. The Pi should display the new value on its next refresh, even when it is lower than the previous value. Each response is a complete total. The Pi should replace its displayed value with that total.
+An empty session returns `{"tokens":0,"scale":5000}`. A capture restart resets the total. The Pi should display the new value on its next refresh, even when it is lower than the previous value. Each response is a complete total. The Pi should replace its displayed value with that total.
 
 If Flask cannot read the configured CSV or cannot produce an estimate, it returns HTTP `503` with an `error` string, such as `{"error":"Expected this CSV header: ..."}`. Treat a non-200 response, connection failure, timeout, or invalid JSON as a refresh failure. Do not use zero as a substitute for a failed refresh. A valid zero comes from a successful response.
 

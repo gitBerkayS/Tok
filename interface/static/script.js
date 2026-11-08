@@ -204,7 +204,39 @@ let saved = new URLSearchParams(location.search).get("mode");
 try { saved = saved || localStorage.getItem("tok-mode"); } catch (e) { /* storage unavailable */ }
 if (saved === "mascot" || saved === "dashboard") setMode(saved);
 
+// ---------- faces designed by Gemini (optional) ----------
+// faces.json (made by hardware/generate_faces.py) replaces the hand-drawn faces in index.html.
+// If it is missing or malformed, the built-in faces stay.
+const SVG_NS = "http://www.w3.org/2000/svg";
+
+async function loadFaces() {
+  try {
+    const res = await fetch("/static/faces.json", { cache: "no-store" });
+    if (!res.ok) return;
+    const { faces } = await res.json();
+    const built = [];
+    for (const [name, face] of Object.entries(faces || {})) {
+      const group = mascot.querySelector(".f-" + name);
+      if (!group) continue;
+      const rects = [];
+      // dark features first, glints last so they draw on top
+      for (const [kind, cls] of [["dark", ""], ["accent", "star"], ["glint", "glint"]]) {
+        for (const r of face[kind] || []) {
+          if (!Array.isArray(r) || r.length !== 4 || !r.every(Number.isFinite)) throw new Error("bad rectangle");
+          const el = document.createElementNS(SVG_NS, "rect");
+          ["x", "y", "width", "height"].forEach((attr, i) => el.setAttribute(attr, r[i]));
+          if (cls) el.setAttribute("class", cls);
+          rects.push(el);
+        }
+      }
+      built.push([group, rects]);
+    }
+    built.forEach(([group, rects]) => group.replaceChildren(...rects)); // swap only if every face was valid
+  } catch (e) { /* keep the built-in faces */ }
+}
+
 refreshBtn.addEventListener("click", loadUsage);
+loadFaces();
 loadUsage();
 setInterval(pollUsage, POLL_MS);
 document.addEventListener("visibilitychange", pollUsage);

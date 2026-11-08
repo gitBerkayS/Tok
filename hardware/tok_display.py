@@ -22,7 +22,7 @@ from pathlib import Path
 
 WIDTH = 16  # characters per LCD row
 
-DEFAULT_SCALE = 10000  # used if the API returns only a bare number
+DEFAULT_SCALE = 5000  # used if the API returns only a bare number
 
 GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
 GEMINI_URL = "https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent"
