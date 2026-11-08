@@ -120,6 +120,6 @@ In another terminal, run Flask from the same directory:
 env TOK_SUBMISSIONS_CSV=submitted_features.current.csv TOK_INTERFACE_HOST=0.0.0.0 python3 -m interface.app
 ```
 
-Flask starts at port 5000. Its `GET /api/usage` endpoint returns `{"tokens":0,"scale":50000}` at the start of a session and updates as submissions are recorded. Flask can stay running when the capture backend restarts.
+Flask starts at port 5000. Its `GET /api/usage` endpoint returns `{"tokens":0,"scale":10000}` at the start of a session and updates as submissions are recorded. Flask can stay running when the capture backend restarts.
 
 On the Pi, set `TOK_API_URL=http://YOUR_MAC_LAN_IP:5000/api/usage` in `hardware/.env` or in its environment before starting the display. Replace `YOUR_MAC_LAN_IP` with your Mac's address on the Pi's network. The display can also use the Mac's `.local` hostname if the Pi can resolve it.
