@@ -1,0 +1,4 @@
+chars,words,avg_chars_per_word,punctuation_ratio,symbol_ratio,longest_word_chars,vocab_size
+22,3,6.333333333333333,0.045454545454545456,0.0,8,2560
+27,4,5.0,0.2222222222222222,0.18518518518518517,8,2560
+11,2,4.0,0.0,0.0,6,2560
