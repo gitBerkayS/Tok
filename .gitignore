@@ -4,5 +4,6 @@ __pycache__/
 
 # Temporary single-file dashboard and local capture sessions.
 /backend/dashboard.html
+/backend/dashboard/
 /prompt_features*.csv
 /submitted_features*.csv
