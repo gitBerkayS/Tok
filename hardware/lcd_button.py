@@ -1,7 +1,12 @@
-"""TOK on a Grove 16x2 RGB LCD, with a Grove button as "Refresh Usage".
+"""TOK on a Grove 16x2 RGB LCD, with a Grove button as power + "Refresh Usage".
 
     Line 1: predicted token usage      e.g.  25,316 tok   51%
     Line 2: a short comment on it      e.g.  Nice and steady (Gemini-written when GEMINI_API_KEY is set)
+
+Button:
+    press while off  -> turn on and fetch the first prediction
+    press while on   -> refresh (each refresh is one GET /api/usage = one model run)
+    hold 2 seconds   -> turn off (screen and backlight dark)
 
 The backlight colour follows the same levels as the web interface.
 
@@ -18,6 +23,7 @@ import tok_display as tok  # shared with simulator.py: what to show, Gemini comm
 LCD_ADDR = 0x3E
 RGB_ADDR = 0x62
 BUTTON_PIN = 5  # Base HAT D5
+HOLD_S = 2  # hold the button this long to turn TOK off
 
 # The LCD currently on the Pi has a dead blue channel, so mood colours are
 # remapped to red/green only. Set to False once you have a working LCD.
@@ -102,15 +108,45 @@ def refresh():
     print(f"{frame.line1} | {frame.line2} ({frame.source})", flush=True)
 
 
+def power_on():
+    global last_line1
+    print("TOK on", flush=True)
+    last_line1 = "TOK"
+    set_rgb(IDLE_RGB)
+    display("TOK", "Starting up...")
+    time.sleep(0.6)
+    refresh()
+
+
+def power_off():
+    print("TOK off", flush=True)
+    display("TOK", "Bye! Press=on")
+    time.sleep(1)
+    command(0x08)  # display off
+    set_rgb((0, 0, 0))
+
+
 if __name__ == "__main__":
     try:
         lcd_init()
-        display("TOK", "Press to refresh")
+        display("TOK", "Press to start")
         set_rgb(IDLE_RGB)
+        on = False
 
         while True:
             button.wait_for_press()
-            refresh()
+            button.wait_for_release(timeout=HOLD_S)
+            held = button.is_pressed  # still down after HOLD_S -> long press
+
+            if not on:
+                power_on()
+                on = True
+            elif held:
+                power_off()
+                on = False
+            else:
+                refresh()
+
             button.wait_for_release()
 
     except KeyboardInterrupt:

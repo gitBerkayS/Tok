@@ -36,6 +36,18 @@ def get_token_count():
 
 Run `python interface/test_contract.py` before pushing. It fails if the return value breaks the contract.
 
+**When does the model run?** There is no start function. Flask calls `get_token_count()` once per
+`GET /api/usage`, and that request *is* the trigger: the Pi button, the web "Refresh Usage" button
+and the simulator each send one. Load the model **once** (at import time, or lazily on the first call
+and then cached), never inside every call: the Pi gives up after 5 seconds.
+
+```python
+model = load_model()          # once, when app.py starts
+
+def get_token_count():
+    return int(model.predict(...))
+```
+
 ## 3. Who owns what
 
 | Part | Owner | Files |
