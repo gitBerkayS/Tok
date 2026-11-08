@@ -128,8 +128,8 @@ private final class Collector {
     init(port: Int) {
         self.port = port
         let config = URLSessionConfiguration.ephemeral
-        config.timeoutIntervalForRequest = 1
-        config.timeoutIntervalForResource = 2
+        config.timeoutIntervalForRequest = 3
+        config.timeoutIntervalForResource = 5
         session = URLSession(configuration: config)
     }
 
@@ -229,9 +229,18 @@ private final class Collector {
         var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/submission")!)
         request.httpMethod = "PUT"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try? JSONSerialization.data(withJSONObject: [
+        let body = try? JSONSerialization.data(withJSONObject: [
             "event_id": submission.id, "source": submission.source, "draft": submission.draft,
         ])
+        // Matches MAX_BODY_BYTES in backend/http_api.py. The backend cannot answer an oversized
+        // upload cleanly, so drop it here instead of retrying it forever.
+        if (body?.count ?? 0) > 16 * 1_048_576 {
+            submissions.removeFirst()
+            fputs("Submission is larger than 16 MiB and was not counted.\n", stderr)
+            sendSubmission()
+            return
+        }
+        request.httpBody = body
         sendingSubmission = true
         session.dataTask(with: request) { [weak self] _, response, _ in
             let status = (response as? HTTPURLResponse)?.statusCode
@@ -453,6 +462,8 @@ private final class Collector {
         guard let composer = composer else { return unavailable }
         verifiedComposer = composer
         if probe { return unavailable }
+        // Lookup stays fast (80 ms), but copying a very long draft needs more time.
+        AXUIElementSetMessagingTimeout(composer, 0.75)
         guard let draft = attribute(composer, kAXValueAttribute) as? String else { return unavailable }
         let visibleDraft = draft.trimmingCharacters(in: emptyDraftCharacters)
         // Codex can return placeholder text followed by an editor line break

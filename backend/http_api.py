@@ -6,7 +6,7 @@ from http.server import BaseHTTPRequestHandler
 from .payloads import parse_snapshot, parse_submission
 
 
-MAX_BODY_BYTES = 1_048_576
+MAX_BODY_BYTES = 16 * 1_048_576  # a very long prompt must not be rejected and counted as 0
 
 
 def make_handler(store, assets):
