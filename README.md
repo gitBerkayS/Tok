@@ -52,7 +52,7 @@ The backend accepts the draft and reports 22 characters and 3 words. Increment `
 
 For this part of the demo, restart the backend with `python3 -B -m backend --track-submissions` and the collector with `/tmp/tok-capture --track-submissions`. If prompted, grant **Input Monitoring** and restart the collector.
 
-Type a prompt and send it with Enter. Tok infers a send when plain Enter is followed by the same verified composer becoming empty within 1.2 seconds. It uses the latest draft snapshot observed before Enter. Shift+Enter and sends made by clicking the Send button fall outside this detector. The backend creates a separate `submitted_features.<timestamp>.csv` at startup and appends one row per accepted send. Check the count and submitted character total with `curl -fsS http://127.0.0.1:8765/session`.
+Send a prompt with plain Enter or click ChatGPT’s Send button in Safari or Chrome. Tok uses the latest captured draft and waits up to 2.5 seconds for a verified empty composer. The backend creates a separate `submitted_features.<timestamp>.csv` at startup and appends one row per accepted send. Check the count and submitted character total with `curl -fsS http://127.0.0.1:8765/session`.
 
 ## How it works
 
@@ -121,6 +121,18 @@ Flask starts at port 5000. Its `GET /api/usage` endpoint returns `{"tokens":0,"s
 On the Pi, set `TOK_API_URL=http://YOUR_MAC_LAN_IP:5000/api/usage` in `hardware/.env` or in its environment before starting the display. Replace `YOUR_MAC_LAN_IP` with your Mac's address on the Pi's network. The display can also use the Mac's `.local` hostname if the Pi can resolve it.
 
 For live draft estimates and the display’s double-tap reset setup, see the [API contract](CONTRACT.md).
+
+### Diagnose a missed submission
+
+Set `TOK_DIAGNOSTICS=1` on the backend, collector, and interface when you restart them with your usual arguments and environment. Each process writes diagnostics to standard error. To save a log, append `2>/tmp/tok-capture.log` to the collector command and use different filenames for the other processes.
+
+Paste the large prompt, wait for Live draft to update, send it with plain Enter, then click **Refresh Usage** in Tok. Compare the logs:
+
+- The collector reports the captured draft size, whether Enter started a send candidate, and why the candidate was confirmed or cancelled. A confirmed candidate has an ID you can match to the backend log.
+- The backend reports accepted submissions and rejection reasons, including the request size when it exceeds the 16 MiB limit.
+- The interface reports the CSV identity and size, the active reset offset, and how many rows and tokens it counted when the file changes. If the backend accepts a submission and the interface still shows zero, check that `TOK_SUBMISSIONS_CSV` points to the file the backend is writing.
+
+The diagnostic lines contain sizes, counts, and status codes. They omit prompt text.
 
 ## Project layout
 

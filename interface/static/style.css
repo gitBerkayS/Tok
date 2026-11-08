@@ -279,3 +279,40 @@ body {
   .mascot svg, .floor, .look, .fill, .dot { animation: none !important; }
   .fill, .mascot, .refresh { transition: none; }
 }
+
+/* Hardware controls use the same pills and accents as the layout selector. */
+.device-controls, .dialog-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.device-controls { margin-top: 20px; justify-content: space-between; }
+.secondary { border: 1px solid var(--border); }
+.mode:disabled { opacity: 0.5; cursor: default; }
+.reset { display: block; margin: 12px auto 0; }
+.card [hidden] { display: none; }
+.card[data-state="off"] :is(.mascot, .metric > .label, .value, .usage, .history) { visibility: hidden; }
+.card[data-state="off"] :is(.mascot svg, .floor) { animation: none; }
+
+#reset-dialog {
+  width: min(360px, calc(100% - 32px));
+  margin: auto;
+  padding: 24px;
+  color: var(--text);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+}
+#reset-dialog::backdrop { background: rgba(11, 10, 16, 0.8); }
+#reset-dialog h2 { font-size: 18px; }
+#reset-dialog p { margin: 10px 0 16px; color: var(--muted); font-size: 13px; }
+#reset-dialog label { font-size: 13px; }
+#reset-key {
+  display: block;
+  width: 100%;
+  margin: 6px 0 16px;
+  padding: 8px 10px;
+  color: var(--text);
+  background: var(--track);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font: inherit;
+}
+.dialog-actions { justify-content: flex-end; }
+.dialog-actions .refresh { width: auto; margin: 0; padding: 8px 12px; font-size: 12px; }

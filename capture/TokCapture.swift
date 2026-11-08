@@ -102,6 +102,7 @@ private final class Collector {
     private let environment = ProcessInfo.processInfo.environment
     private let probe = CommandLine.arguments.contains("--probe")
     private let trackSubmissions = CommandLine.arguments.contains("--track-submissions")
+    private let diagnostics = ProcessInfo.processInfo.environment["TOK_DIAGNOSTICS"] == "1"
     private let allowUnidentifiedSafariEditor = CommandLine.arguments.contains("--allow-unidentified-safari-editor")
     private let session: URLSession
     private let port: Int
@@ -120,7 +121,11 @@ private final class Collector {
     private var backendConnected: Bool?
     private var lastProbe: String?
     private var keyTap: CFMachPort?
-    private var enterCandidate: (source: String, draft: String, composer: AXUIElement, deadline: TimeInterval)?
+    private var snapshotComposer: AXUIElement?
+    private var snapshotWebArea: AXUIElement?
+    private var enterCandidate: (
+        id: String, source: String, draft: String, composer: AXUIElement, webArea: AXUIElement?, deadline: TimeInterval
+    )?
     private var enterCheck: Timer?
     private var submissions: [(id: String, source: String, draft: String)] = []
     private var sendingSubmission = false
@@ -134,6 +139,7 @@ private final class Collector {
     }
 
     func start() {
+        diagnose("startup tracking=\(trackSubmissions) probe=\(probe) port=\(port)")
         if !probe {
             fputs("Tok collector started. Focus a supported prompt composer to capture a draft.\n", stderr)
         }
@@ -147,6 +153,7 @@ private final class Collector {
     }
 
     private func appChanged() {
+        if let candidate = enterCandidate { diagnose("send_cancelled id=\(candidate.id) reason=app_changed") }
         clearEnterCandidate()
         eventRead?.invalidate()
         eventRead = nil
@@ -157,16 +164,20 @@ private final class Collector {
     }
 
     private func startSubmissionTracking() {
-        let mask = CGEventMask(1) << CGEventType.keyDown.rawValue
+        let mask = (CGEventMask(1) << CGEventType.keyDown.rawValue) |
+            (CGEventMask(1) << CGEventType.leftMouseDown.rawValue)
         guard let tap = CGEvent.tapCreate(
             tap: .cgSessionEventTap, place: .headInsertEventTap, options: .listenOnly,
             eventsOfInterest: mask, callback: { _, type, event, context in
                 guard let context = context else { return Unmanaged.passUnretained(event) }
                 let collector = Unmanaged<Collector>.fromOpaque(context).takeUnretainedValue()
                 if type == .tapDisabledByTimeout, let tap = collector.keyTap {
+                    collector.diagnose("input_tap_timeout")
                     CGEvent.tapEnable(tap: tap, enable: true)
                 } else if type == .keyDown {
                     collector.handleKeyDown(event)
+                } else if type == .leftMouseDown {
+                    collector.handleClick(at: event.location)
                 }
                 return Unmanaged.passUnretained(event)
             }, userInfo: Unmanaged.passUnretained(self).toOpaque()
@@ -177,24 +188,66 @@ private final class Collector {
         keyTap = tap
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: tap, enable: true)
+        diagnose("input_tap_enabled")
     }
 
     private func handleKeyDown(_ event: CGEvent) {
         let key = event.getIntegerValueField(.keyboardEventKeycode)
         let modifiers: CGEventFlags = [.maskShift, .maskControl, .maskAlternate, .maskCommand, .maskSecondaryFn]
-        guard (key == 36 || key == 76), event.flags.intersection(modifiers).isEmpty,
+        let isEnter = key == 36 || key == 76
+        guard isEnter, event.flags.intersection(modifiers).isEmpty,
               event.getIntegerValueField(.keyboardEventAutorepeat) == 0 else {
+            if let candidate = enterCandidate {
+                diagnose("send_cancelled id=\(candidate.id) reason=next_key")
+            } else if isEnter {
+                diagnose("send_ignored reason=modified_or_repeated_enter")
+            }
             clearEnterCandidate()
             return
         }
+        armSubmission()
+    }
+
+    private func handleClick(at point: CGPoint) {
+        guard let webArea = snapshotWebArea, let app = activeApp,
+              workspace.frontmostApplication?.processIdentifier == app.processIdentifier else { return }
+        let appElement = AXUIElementCreateApplication(app.processIdentifier)
+        AXUIElementSetMessagingTimeout(appElement, 0.08)
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(appElement, Float(point.x), Float(point.y), &hit) == .success,
+              var element = hit else { return }
+        var hitSend = false
+        for _ in 0..<20 {
+            if CFEqual(element, webArea) {
+                if hitSend { armSubmission() }
+                return
+            }
+            let node = AccessibilityNode(element)
+            if node.role == kAXButtonRole {
+                let identifiers = ["composer-submit-button", "send-button"]
+                let labels = [kAXTitleAttribute, kAXDescriptionAttribute]
+                hitSend = hitSend || node.identifiers.contains(where: identifiers.contains) ||
+                    labels.contains { (attribute(element, $0) as? String)?.lowercased() == "send prompt" }
+            }
+            guard let parent = node.parent, !CFEqual(parent, element) else { return }
+            element = parent
+        }
+    }
+
+    private func armSubmission() {
         if enterCandidate != nil { return }
         guard latest.status == "ready", let source = latest.source, let draft = latest.draft,
               !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-              let composer = observedComposer, let app = activeApp,
-              workspace.frontmostApplication?.processIdentifier == app.processIdentifier else { return }
+              let composer = snapshotComposer, let app = activeApp,
+              workspace.frontmostApplication?.processIdentifier == app.processIdentifier else {
+            diagnose("send_ignored reason=no_ready_focused_draft status=\(latest.status) bytes=\(latest.draft?.utf8.count ?? 0)")
+            return
+        }
 
-        enterCandidate = (source, draft, composer, ProcessInfo.processInfo.systemUptime + 1.2)
-        // Briefly poll after Enter in case the editor omits its clear notification.
+        let id = UUID().uuidString
+        diagnose("send_candidate id=\(id) source=\(source) bytes=\(draft.utf8.count)")
+        enterCandidate = (id, source, draft, composer, snapshotWebArea, ProcessInfo.processInfo.systemUptime + 2.5)
+        // Briefly poll after a send attempt in case the editor omits its clear notification.
         enterCheck = Timer.scheduledTimer(withTimeInterval: 0.12, repeats: true) { [weak self] _ in
             self?.tick()
         }
@@ -208,18 +261,32 @@ private final class Collector {
 
     private func checkSubmission() {
         guard let candidate = enterCandidate else { return }
-        guard ProcessInfo.processInfo.systemUptime <= candidate.deadline,
-              latest.status == "ready", latest.source == candidate.source,
-              let composer = observedComposer, CFEqual(composer, candidate.composer),
-              let currentDraft = latest.draft else {
+        guard ProcessInfo.processInfo.systemUptime <= candidate.deadline else {
+            diagnose("send_cancelled id=\(candidate.id) reason=clear_timeout")
             clearEnterCandidate()
             return
         }
+        let sameComposer = snapshotComposer.map { CFEqual($0, candidate.composer) } ?? false
+        let sameWebArea = candidate.webArea.flatMap { previous in
+            snapshotWebArea.map { CFEqual(previous, $0) }
+        } ?? false
+        // The browser can temporarily move focus away from the editor during a send.
+        guard latest.source == candidate.source, sameComposer || sameWebArea else {
+            if latest.status == "ready" {
+                diagnose("send_cancelled id=\(candidate.id) reason=composer_changed")
+                clearEnterCandidate()
+            }
+            return
+        }
+        let currentDraft = latest.draft ?? composerDraft(candidate.composer, source: candidate.source)
+        guard let currentDraft = currentDraft else { return }
         if currentDraft.isEmpty {
             clearEnterCandidate()
-            submissions.append((UUID().uuidString, candidate.source, candidate.draft))
+            diagnose("send_confirmed id=\(candidate.id)")
+            submissions.append((candidate.id, candidate.source, candidate.draft))
             sendSubmission()
-        } else if !currentDraft.utf8.elementsEqual(candidate.draft.utf8) {
+        } else if sameComposer && !currentDraft.utf8.elementsEqual(candidate.draft.utf8) {
+            diagnose("send_cancelled id=\(candidate.id) reason=draft_changed bytes=\(currentDraft.utf8.count)")
             clearEnterCandidate()
         }
     }
@@ -241,11 +308,13 @@ private final class Collector {
             return
         }
         request.httpBody = body
+        diagnose("submission_request id=\(submission.id) body_bytes=\(body?.count ?? 0)")
         sendingSubmission = true
-        session.dataTask(with: request) { [weak self] _, response, _ in
+        session.dataTask(with: request) { [weak self] _, response, error in
             let status = (response as? HTTPURLResponse)?.statusCode
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                self.diagnose("submission_response id=\(submission.id) http=\(status ?? 0) transport_code=\((error as NSError?)?.code ?? 0)")
                 self.sendingSubmission = false
                 if status == 200 {
                     self.submissions.removeFirst()
@@ -334,6 +403,8 @@ private final class Collector {
     }
 
     private func snapshot() -> Snapshot {
+        snapshotComposer = nil
+        snapshotWebArea = nil
         guard let app = activeApp, let bundle = app.bundleIdentifier else {
             return Snapshot(status: "inactive")
         }
@@ -375,6 +446,7 @@ private final class Collector {
         var focusedEditor: AXUIElement?
         var anonymousSafariEditor: AXUIElement?
         var webAreaFound = false
+        var webArea: AXUIElement?
         var pageURL: URL?
         var roles: [String] = []
         let deadline = ProcessInfo.processInfo.systemUptime + (source == "safari" ? 0.6 : 0.2)
@@ -403,6 +475,7 @@ private final class Collector {
             }
             if browser != nil, role == "AXWebArea" {
                 webAreaFound = true
+                webArea = element
                 pageURL = urlAttribute(element, kAXURLAttribute)
                 if pageURL == nil, source == "safari" {
                     pageURL = urlAttribute(element, kAXDocumentAttribute)
@@ -435,6 +508,7 @@ private final class Collector {
                 reportProbe("\(source): \(reason) — " + roles.joined(separator: " → "))
                 return Snapshot(status: "inactive")
             }
+            snapshotWebArea = webArea
         }
         var result = composer == nil ? "composer not identified" : "composer detected"
         if source == "codex", composerIDs.isEmpty {
@@ -462,9 +536,22 @@ private final class Collector {
         guard let composer = composer else { return unavailable }
         verifiedComposer = composer
         if probe { return unavailable }
+        guard let draft = composerDraft(composer, source: source) else { return unavailable }
+        snapshotComposer = composer
+        return Snapshot(source: source, status: "ready", draft: draft)
+    }
+
+    private func composerDraft(_ composer: AXUIElement, source: String) -> String? {
         // Lookup stays fast (80 ms), but copying a very long draft needs more time.
         AXUIElementSetMessagingTimeout(composer, 0.75)
-        guard let draft = attribute(composer, kAXValueAttribute) as? String else { return unavailable }
+        var value: CFTypeRef?
+        let resultCode = AXUIElementCopyAttributeValue(composer, kAXValueAttribute as CFString, &value)
+        guard resultCode == .success, let draft = value as? String else {
+            if latest.status != "unavailable" || enterCandidate != nil {
+                diagnose("composer_read_failed source=\(source) ax_code=\(resultCode.rawValue)")
+            }
+            return nil
+        }
         let visibleDraft = draft.trimmingCharacters(in: emptyDraftCharacters)
         // Codex can return placeholder text followed by an editor line break
         // even when AXPlaceholderValue is unavailable.
@@ -473,20 +560,36 @@ private final class Collector {
             (draft == "Work with Codex\n" || draft == "Do anything\n" ||
              visibleDraft == attribute(composer, kAXPlaceholderValueAttribute) as? String)
         )
-        return Snapshot(source: source, status: "ready", draft: empty ? "" : draft)
+        return empty ? "" : draft
     }
 
     private func reportProbe(_ message: String) {
-        guard probe, message != lastProbe else { return }
-        lastProbe = message
-        print(message)
+        guard probe || diagnostics else { return }
+        // Diagnostics show the reason without printing accessibility identifiers.
+        let report = probe ? message : message.components(separatedBy: " — ").first ?? message
+        guard report != lastProbe else { return }
+        lastProbe = report
+        if probe {
+            print(report)
+        } else {
+            diagnose("composer_status \(report)")
+        }
     }
 
     private func tick() {
+        let previous = latest
         latest = snapshot()
+        if diagnostics && previous != latest {
+            diagnose("draft_snapshot source=\(latest.source ?? "-") status=\(latest.status) bytes=\(latest.draft?.utf8.count ?? 0)")
+        }
         checkSubmission()
         updateWatchdog()
         publish()
+    }
+
+    private func diagnose(_ message: @autoclosure () -> String) {
+        guard diagnostics else { return }
+        fputs("[tok capture] \(Date().timeIntervalSince1970) \(message())\n", stderr)
     }
 
     private func publish() {
@@ -506,10 +609,14 @@ private final class Collector {
         guard let body = try? JSONSerialization.data(withJSONObject: payload) else { return }
         request.httpBody = body
         sending = true
-        session.dataTask(with: request) { [weak self] _, response, _ in
-            let delivered = (response as? HTTPURLResponse)?.statusCode == 200
+        session.dataTask(with: request) { [weak self] _, response, error in
+            let status = (response as? HTTPURLResponse)?.statusCode
+            let delivered = status == 200
             DispatchQueue.main.async {
                 guard let self = self else { return }
+                if !delivered {
+                    self.diagnose("draft_request_failed body_bytes=\(body.count) http=\(status ?? 0) transport_code=\((error as NSError?)?.code ?? 0)")
+                }
                 self.sending = false
                 if self.backendConnected != delivered {
                     self.backendConnected = delivered

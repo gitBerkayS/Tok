@@ -31,7 +31,15 @@ DRAFT_ERROR = "Live draft estimate unavailable"
 @lru_cache(maxsize=1)
 def _csv_token_total(path, vocab_size, file_version, cutoff):
     # File version changes on append and replacement. The cutoff changes on reset.
-    return estimate_csv(path, vocab_size, cutoff=cutoff)["estimated_tokens"]
+    estimate = estimate_csv(path, vocab_size, cutoff=cutoff)
+    if os.environ.get("TOK_DIAGNOSTICS") == "1":
+        device, inode, size, _ = file_version
+        active_cutoff = cutoff[2] if cutoff and cutoff[:2] == (device, inode) and cutoff[2] <= size else 0
+        app.logger.warning(
+            "tok usage device=%d inode=%d csv_bytes=%d reset_offset=%d rows=%d tokens=%d",
+            device, inode, size, active_cutoff, len(estimate["rows"]), estimate["estimated_tokens"],
+        )
+    return estimate["estimated_tokens"]
 
 
 def _cutoff_path(csv_path):
@@ -91,6 +99,8 @@ def get_usage():
     try:
         return jsonify(tokens=get_token_count(), scale=REFERENCE_SCALE)
     except (OSError, TypeError, ValueError, RuntimeError) as error:
+        if os.environ.get("TOK_DIAGNOSTICS") == "1":
+            app.logger.warning("tok usage failed type=%s errno=%s", type(error).__name__, getattr(error, "errno", None))
         return jsonify(error=str(error)), 503
 
 

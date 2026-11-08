@@ -22,6 +22,14 @@
       </div>
     </header>
 
+    <div class="device-controls">
+      <div class="modes" role="group" aria-label="Token reading">
+        <button type="button" class="mode" data-reading="session" aria-pressed="true">Session total</button>
+        <button type="button" class="mode" data-reading="draft" aria-pressed="false">Live draft</button>
+      </div>
+      <button id="power" class="mode secondary" type="button">Turn display off</button>
+    </div>
+
     <section class="hero">
       <div class="mascot" id="mascot" data-face="loading" aria-hidden="true">
         <svg viewBox="0 0 14 14" shape-rendering="crispEdges">
@@ -85,7 +93,7 @@
       </div>
 
       <div class="metric">
-        <span class="label">Session total</span>
+        <span class="label" id="reading-label">Session total</span>
         <div class="value">
           <span id="token-count">&ndash;</span>
           <span class="unit">tokens</span>
@@ -101,7 +109,7 @@
         <span class="label">Usage visualization</span>
         <span id="percent" class="percent">&ndash;</span>
       </div>
-      <div class="bar" role="progressbar" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar">
+      <div class="bar" role="progressbar" aria-label="Token usage" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="bar">
         <div class="fill" id="fill"></div>
       </div>
       <div class="scale">
@@ -112,7 +120,7 @@
 
     <section class="history">
       <div class="usage-head">
-        <span class="label">Session history</span>
+        <span class="label" id="history-label">Session history</span>
         <span id="history-count" class="hint"></span>
       </div>
       <svg id="spark" viewBox="0 0 300 64" aria-hidden="true">
@@ -129,7 +137,20 @@
     </section>
 
     <button id="refresh" class="refresh" type="button">Refresh Usage</button>
+    <button id="reset" class="mode reset" type="button">Reset session</button>
     <p id="error" class="error" role="alert" hidden></p>
+    <dialog id="reset-dialog" aria-labelledby="reset-title">
+      <form id="reset-form">
+        <h2 id="reset-title">Reset session total?</h2>
+        <p>This resets the total on both the web app and the Pi. Captured rows stay in the CSV.</p>
+        <label for="reset-key">Device reset key</label>
+        <input id="reset-key" type="password" required autocomplete="off">
+        <div class="dialog-actions">
+          <button id="cancel-reset" type="button" class="mode secondary">Cancel</button>
+          <button type="submit" class="refresh">Reset session</button>
+        </div>
+      </form>
+    </dialog>
   </main>
 
   <script src="{{ url_for('static', filename='script.js') }}"></script>
